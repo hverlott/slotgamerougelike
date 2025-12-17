@@ -24,7 +24,7 @@ export class EnemySystem {
     this._t = 0;
     this.totalSpawned = 0;
     this.totalKilled = 0;
-    // 数值放大：让飘字/血量更“爽”（默认 *100）
+    // 数值放大：让飘字/血量更"爽"（默认 *100）
     this.combatScale = options.combatScale ?? 100;
     // 前进动画时长（越大越慢）
     this.moveTweenDuration = options.moveTweenDuration ?? 1.0;
@@ -32,6 +32,9 @@ export class EnemySystem {
     this.gridSize = options.gridSize ?? 10;
     this.cellSize = options.cellSize ?? 60;
     this.gridTop = options.gridTop ?? 100;
+
+    // 伤害回调（用于 ComboSystem 追踪）
+    this.onDamageDealt = options.onDamageDealt ?? null;
 
     this.app.gameLayer.addChild(this.container);
 
@@ -162,6 +165,11 @@ export class EnemySystem {
   takeDamage(zombie, amount = 1) {
     if (!zombie || zombie.destroyed) return;
     zombie.hp = Math.max(0, (zombie.hp ?? 1) - amount);
+
+    // 通知伤害回调（用于 ComboSystem）
+    if (this.onDamageDealt && amount > 0) {
+      this.onDamageDealt(amount);
+    }
 
     // 闪白
     const flash = new ColorMatrixFilter();

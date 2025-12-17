@@ -65,7 +65,16 @@ export class HUDSystem extends Container {
     this.txtCoins = this.makeRightStat('💰', '0');
     this.txtKills = this.makeRightStat('⭐', '0/100');
     this.txtZ = this.makeRightStat('🧟', '0');
-    this.rightLayer.addChild(this.txtCoins, this.txtKills, this.txtZ);
+    this.txtCombo = this.makeRightStat('🔥', 'x0');
+    this.rightLayer.addChild(this.txtCoins, this.txtKills, this.txtZ, this.txtCombo);
+
+    // 热度条（在进度条下方）
+    this.heatBarBack = new Graphics();
+    this.heatBarFill = new Graphics();
+    this.addChild(this.heatBarBack, this.heatBarFill);
+    
+    this.heatPercent = 0;
+    this.heatColor = 0x00ff88;
   }
 
   makeMiniBtn(label, hint) {
@@ -190,12 +199,34 @@ export class HUDSystem extends Container {
     this.icon.x = barX - 20;
     this.icon.y = barY + barH / 2;
 
+    // 热度条（在主进度条下方）
+    const heatBarX = barX;
+    const heatBarY = barY + barH + 4;
+    const heatBarW = barW;
+    const heatBarH = 6;
+    const heatPct = Math.min(1, Math.max(0, this.heatPercent));
+
+    this.heatBarBack.clear();
+    this.heatBarBack.roundRect(heatBarX, heatBarY, heatBarW, heatBarH, 3);
+    this.heatBarBack.fill({ color: 0x0b1020, alpha: 0.65 });
+    this.heatBarBack.stroke({ width: 1, color: this.heatColor, alpha: 0.3 });
+
+    this.heatBarFill.clear();
+    if (heatPct > 0) {
+      this.heatBarFill.roundRect(heatBarX + 1, heatBarY + 1, (heatBarW - 2) * heatPct, heatBarH - 2, 2);
+      this.heatBarFill.fill({ color: this.heatColor, alpha: 0.85 });
+      // 高光
+      this.heatBarFill.roundRect(heatBarX + 1, heatBarY + 1, (heatBarW - 2) * heatPct, 2, 2);
+      this.heatBarFill.fill({ color: 0xffffff, alpha: 0.25 });
+    }
+
     // 右侧 stats
     this.rightLayer.x = this.width - 160;
-    this.rightLayer.y = 16;
+    this.rightLayer.y = 12;
     this.txtCoins.y = 0;
-    this.txtKills.y = 18;
-    this.txtZ.y = 36;
+    this.txtKills.y = 16;
+    this.txtZ.y = 32;
+    this.txtCombo.y = 48;
   }
 
   setProgress(pct = 1) {
@@ -228,6 +259,194 @@ export class HUDSystem extends Container {
       this.icon.text = '⭐';
     }
   }
+
+  /**
+   * 🔥 更新连击/热度显示
+   */
+  setComboState({ comboCount = 0, heatPercent = 0, heatColor = 0x00ff88, overdriveActive = false } = {}) {
+    // 更新连击计数
+    if (this.txtCombo?.value) {
+      const comboText = overdriveActive ? `⚡x${comboCount}` : `x${comboCount}`;
+      this.txtCombo.value.text = comboText;
+      
+      // 过载时文字闪烁
+      if (overdriveActive) {
+        this.txtCombo.value.style.fill = heatColor;
+      } else {
+        this.txtCombo.value.style.fill = '#ffffff';
+      }
+    }
+
+    // 更新热度条
+    this.heatPercent = heatPercent / 100;
+    this.heatColor = heatColor;
+    this.layout();
+  }
+
+  /**
+   * 🎯 打开升级选择界面（返回 Promise）
+   */
+  openChoice(options = []) {
+    return new Promise((resolve) => {
+      if (options.length === 0) {
+        resolve(null);
+        return;
+      }
+
+      // 创建模态背景
+      const modal = document.createElement('div');
+      Object.assign(modal.style, {
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(0, 0, 0, 0.85)',
+        zIndex: 1000,
+        backdropFilter: 'blur(8px)',
+      });
+
+      // 创建选择面板
+      const panel = document.createElement('div');
+      Object.assign(panel.style, {
+        background: 'linear-gradient(135deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.95) 100%)',
+        borderRadius: '20px',
+        padding: '40px',
+        maxWidth: '900px',
+        width: '90%',
+        border: '2px solid rgba(0,240,255,0.3)',
+        boxShadow: '0 0 40px rgba(0,240,255,0.2), inset 0 0 20px rgba(0,240,255,0.05)',
+      });
+
+      // 标题
+      const title = document.createElement('div');
+      title.textContent = '🎯 选择升级';
+      Object.assign(title.style, {
+        fontSize: '32px',
+        fontWeight: '900',
+        color: '#00F0FF',
+        textAlign: 'center',
+        marginBottom: '30px',
+        textShadow: '0 0 20px rgba(0,240,255,0.6)',
+      });
+
+      // 选项容器
+      const optionsContainer = document.createElement('div');
+      Object.assign(optionsContainer.style, {
+        display: 'flex',
+        gap: '20px',
+        justifyContent: 'center',
+        flexWrap: 'wrap',
+      });
+
+      // 稀有度颜色映射
+      const rarityColors = {
+        common: '#94A3B8',
+        rare: '#3B82F6',
+        epic: '#A855F7',
+        legendary: '#F59E0B',
+      };
+
+      // 创建选项按钮
+      options.forEach((upgrade, index) => {
+        const optionBtn = document.createElement('button');
+        const color = rarityColors[upgrade.rarity] || '#94A3B8';
+        
+        Object.assign(optionBtn.style, {
+          background: 'rgba(15,23,42,0.8)',
+          border: `2px solid ${color}`,
+          borderRadius: '16px',
+          padding: '24px',
+          width: '260px',
+          cursor: 'pointer',
+          transition: 'all 0.3s ease',
+          color: '#E2E8F0',
+          textAlign: 'center',
+          boxShadow: `0 0 20px ${color}33`,
+        });
+
+        // 图标
+        const icon = document.createElement('div');
+        icon.textContent = upgrade.icon || '⭐';
+        Object.assign(icon.style, {
+          fontSize: '48px',
+          marginBottom: '12px',
+        });
+
+        // 名称
+        const name = document.createElement('div');
+        name.textContent = upgrade.name;
+        Object.assign(name.style, {
+          fontSize: '20px',
+          fontWeight: '800',
+          color: color,
+          marginBottom: '8px',
+        });
+
+        // 描述
+        const desc = document.createElement('div');
+        desc.textContent = upgrade.description;
+        Object.assign(desc.style, {
+          fontSize: '14px',
+          color: '#94A3B8',
+          lineHeight: '1.5',
+        });
+
+        // 稀有度标签
+        const rarity = document.createElement('div');
+        rarity.textContent = upgrade.rarity?.toUpperCase() || 'COMMON';
+        Object.assign(rarity.style, {
+          fontSize: '11px',
+          fontWeight: '700',
+          color: color,
+          marginTop: '12px',
+          letterSpacing: '1px',
+        });
+
+        optionBtn.appendChild(icon);
+        optionBtn.appendChild(name);
+        optionBtn.appendChild(desc);
+        optionBtn.appendChild(rarity);
+
+        // 悬停效果
+        optionBtn.addEventListener('mouseenter', () => {
+          optionBtn.style.transform = 'translateY(-8px) scale(1.05)';
+          optionBtn.style.boxShadow = `0 8px 30px ${color}66`;
+          optionBtn.style.background = 'rgba(30,41,59,0.9)';
+        });
+
+        optionBtn.addEventListener('mouseleave', () => {
+          optionBtn.style.transform = 'translateY(0) scale(1)';
+          optionBtn.style.boxShadow = `0 0 20px ${color}33`;
+          optionBtn.style.background = 'rgba(15,23,42,0.8)';
+        });
+
+        // 点击事件
+        optionBtn.addEventListener('click', () => {
+          document.body.removeChild(modal);
+          resolve(upgrade);
+        });
+
+        optionsContainer.appendChild(optionBtn);
+      });
+
+      panel.appendChild(title);
+      panel.appendChild(optionsContainer);
+      modal.appendChild(panel);
+      document.body.appendChild(modal);
+
+      // ESC 键取消（选择第一个作为默认）
+      const handleEsc = (e) => {
+        if (e.key === 'Escape') {
+          document.removeEventListener('keydown', handleEsc);
+          document.body.removeChild(modal);
+          resolve(options[0]);
+        }
+      };
+      document.addEventListener('keydown', handleEsc);
+    });
+  }
 }
+
 
 

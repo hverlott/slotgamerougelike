@@ -19,6 +19,7 @@ export class SlotSystem extends Container {
   constructor(app, options = {}) {
     super();
     this.app = app;
+    this.audioSystem = options.audioSystem || null; // 🔊 音频系统
 
     this.reelCount = 3;
     this.visibleCount = 3;
@@ -54,8 +55,11 @@ export class SlotSystem extends Container {
     this.activeTweens = [];
     this.particlePool = [];
     this.activeParticles = [];
+    
+    // 存储最近一次转轮结果
+    this.lastResult = null;
 
-    // --- 核心修复：容器层级重构 ---
+    // --- 容器层级重构 ---
     // 1. 创建滚轮容器 (被遮罩)
     this.reelContainer = new Container();
     this.addChild(this.reelContainer);
@@ -84,13 +88,170 @@ export class SlotSystem extends Container {
     this.addChild(this.fxLayer);
     this.addChild(this.winText);
     
+    // 🎮 创建控制台底座和卡槽（添加到最底层）
+    this.consolePanel = this.createConsolePanel();
+    this.addChildAt(this.consolePanel, 0);  // 最底层
+    
+    this.cardSlots = this.createCardSlots();
+    this.addChildAt(this.cardSlots, 1);  // 卡槽层
+    
     // 初始化滚轮内容
     this.createReels();
+    
+    // 🌬️ 启动待机呼吸动画
+    this.startBreathingAnimation();
 
     this.update = this.update.bind(this);
     this.app.app.ticker.add(this.update);
 
     themeManager.subscribe((theme) => this.updateTheme(theme));
+  }
+  
+  /**
+   * 🎮 创建控制台底座面板
+   */
+  createConsolePanel() {
+    const panel = new Graphics();
+    const padding = 20;
+    const panelWidth = this.totalWidth + padding * 2;
+    const panelHeight = this.totalHeight + padding * 2;
+    
+    // 深色玻璃背景
+    panel.roundRect(-padding, -padding, panelWidth, panelHeight, 8);
+    panel.fill({
+      color: 0x050a14,  // 深蓝黑色
+      alpha: 0.85,
+    });
+    
+    // 细边框（暗）
+    panel.roundRect(-padding, -padding, panelWidth, panelHeight, 8);
+    panel.stroke({
+      width: 1,
+      color: 0x00F0FF,
+      alpha: 0.2,  // 很暗的边框
+    });
+    
+    // 内阴影模拟（顶部暗线）
+    panel.moveTo(-padding + 8, -padding + 1);
+    panel.lineTo(-padding + panelWidth - 8, -padding + 1);
+    panel.stroke({
+      width: 1,
+      color: 0x000000,
+      alpha: 0.4,
+    });
+    
+    // 底部微光（非常微妙）
+    panel.moveTo(-padding + 8, -padding + panelHeight - 1);
+    panel.lineTo(-padding + panelWidth - 8, -padding + panelHeight - 1);
+    panel.stroke({
+      width: 1,
+      color: 0xFFFFFF,
+      alpha: 0.05,
+    });
+    
+    return panel;
+  }
+  
+  /**
+   * 🎴 创建卡槽网格（3x3 内凹槽）
+   */
+  createCardSlots() {
+    const container = new Container();
+    
+    for (let col = 0; col < 3; col++) {
+      for (let row = 0; row < 3; row++) {
+        const slot = new Graphics();
+        const x = col * (this.symbolWidth + this.reelSpacing);
+        const y = row * this.symbolHeight;
+        
+        // 内凹卡槽背景
+        slot.roundRect(0, 0, this.symbolWidth, this.symbolHeight, 4);
+        slot.fill({
+          color: 0x000000,
+          alpha: 0.6,
+        });
+        
+        // 内凹阴影（顶部）
+        slot.moveTo(4, 1);
+        slot.lineTo(this.symbolWidth - 4, 1);
+        slot.stroke({
+          width: 1,
+          color: 0x000000,
+          alpha: 0.5,
+        });
+        
+        // 内凹阴影（左侧）
+        slot.moveTo(1, 4);
+        slot.lineTo(1, this.symbolHeight - 4);
+        slot.stroke({
+          width: 1,
+          color: 0x000000,
+          alpha: 0.5,
+        });
+        
+        // 内凹高光（底部）
+        slot.moveTo(4, this.symbolHeight - 1);
+        slot.lineTo(this.symbolWidth - 4, this.symbolHeight - 1);
+        slot.stroke({
+          width: 1,
+          color: 0xFFFFFF,
+          alpha: 0.05,
+        });
+        
+        // 内凹高光（右侧）
+        slot.moveTo(this.symbolWidth - 1, 4);
+        slot.lineTo(this.symbolWidth - 1, this.symbolHeight - 4);
+        slot.stroke({
+          width: 1,
+          color: 0xFFFFFF,
+          alpha: 0.05,
+        });
+        
+        slot.position.set(x, y);
+        container.addChild(slot);
+      }
+    }
+    
+    return container;
+  }
+  
+  /**
+   * 🌬️ 启动待机呼吸动画（4-6s 循环）
+   */
+  startBreathingAnimation() {
+    if (!this.consolePanel) return;
+    
+    // 微妙的 alpha 呼吸效果
+    gsap.to(this.consolePanel, {
+      alpha: 0.92,
+      duration: 5,
+      ease: 'sine.inOut',
+      yoyo: true,
+      repeat: -1,
+    });
+  }
+  
+  /**
+   * 🌟 Spin 时控制台面板脉冲
+   */
+  triggerConsolePulse() {
+    if (!this.consolePanel) return;
+    
+    // 短暂增亮
+    gsap.to(this.consolePanel, {
+      alpha: 1.0,
+      duration: 0.3,
+      ease: 'power2.out',
+      onComplete: () => {
+        // 然后返回
+        gsap.to(this.consolePanel, {
+          alpha: 0.85,
+          duration: 0.8,
+          delay: 0.2,
+          ease: 'power2.inOut',
+        });
+      },
+    });
   }
 
   createMask() {
@@ -234,6 +395,9 @@ export class SlotSystem extends Container {
     this.clearEffects();
     this.isSpinning = true;
 
+    // 🔊 播放转轮启动音效
+    this.audioSystem?.play('spin_start');
+
     this.reels.forEach((reel, i) => {
       reel.state = 'pre-spin'; // 关键：先进入准备状态，不让 update 跑逻辑
       reel.targetQueue = [];
@@ -273,6 +437,10 @@ export class SlotSystem extends Container {
   stopSpin(results, bet = 10) {
     const normalized = this.normalizeResults(results ?? []);
     this.currentBet = bet;
+    
+    // 🔊 播放转轮停止音效
+    this.audioSystem?.play('spin_stop', { volume: 0.8 });
+    
     const alignPromises = this.reels.map((reel, idx) => {
       // stopSpin 时必须干掉 pre-spin tween，否则 tween 会持续拉 y，导致 targetQueue 注入触发变慢甚至超时
       reel.preSpinTween?.kill?.();
@@ -377,6 +545,10 @@ export class SlotSystem extends Container {
 
   alignReel(reel) {
     reel.state = 'aligning';
+    
+    // 🔊 播放转轮停止音效
+    this.audioSystem?.play('spin_stop');
+    
     // 按照 y 坐标排序，找到当前显示的图标顺序
     const sorted = [...reel.symbols].sort((a, b) => a.y - b.y);
     
@@ -715,5 +887,97 @@ export class SlotSystem extends Container {
     });
     if (this.winText) this.winText.style.fill = theme.win;
     if (this.lineLayer) this.lineLayer.tint = colorInt(theme.win.replace('#', '0x'));
+  }
+
+  /**
+   * 生成随机转轮结果（fallback，如果没有外部 ResultBank）
+   */
+  generateRandomResults() {
+    const results = [];
+    for (let col = 0; col < this.reelCount; col += 1) {
+      const colResults = [];
+      for (let row = 0; row < this.visibleCount; row += 1) {
+        colResults.push(this.randomSymbol());
+      }
+      results.push(colResults);
+    }
+    return results;
+  }
+
+  /**
+   * 🎰 播放转轮动画 + 内部结算，结果存到 this.lastResult
+   * 
+   * @param {number} bet - 下注金额，默认 10
+   * @returns {Promise<SpinResult>} 统一格式的转轮结果：
+   *   {
+   *     grid: Array<Array<number>>,  // 3x3 符号网格
+   *     wins: Array<WinLine>,         // 中奖线数组 [{ lineIndex, symbols, payoutMul }]
+   *     totalMul: number,             // 总倍率
+   *     bet: number,                  // 下注金额
+   *     totalWin: number,             // 总赢得金额 (totalMul * bet * payoutScale)
+   *     timestamp: number             // 时间戳
+   *   }
+   */
+  async playSpin(bet = 10) {
+    // 1) 开始转轮动画
+    this.startSpin();
+
+    // 2) 获取结果数据（优先从 ResultBank，否则随机生成）
+    let spinResult;
+    let gridData;
+    
+    // 尝试从 ResultBank 获取统一格式的 SpinResult
+    if (this.app?.resultBank?.getResult) {
+      const level = this.app.levelManager?.currentLevel ?? 1;
+      spinResult = this.app.resultBank.getResult(level);
+      gridData = spinResult.grid;
+    } else if (this.app?.app?.resultBank?.getResult) {
+      const level = this.app.app.levelManager?.currentLevel ?? 1;
+      spinResult = this.app.app.resultBank.getResult(level);
+      gridData = spinResult.grid;
+    } else {
+      // fallback: 内部随机生成 grid 数据
+      gridData = this.generateRandomResults();
+      spinResult = null;
+    }
+
+    // 3) 停轮并处理结果（等待动画 + 结算完成）
+    const outcome = await this.stopSpin(gridData, bet);
+
+    // 4) 如果没有从 ResultBank 获得 SpinResult，根据实际结算生成
+    if (!spinResult) {
+      const wins = outcome.winLines.map((line) => ({
+        lineIndex: line.index,
+        symbols: line.coords.map(({ c, r }) => outcome.normalized[c][r]),
+        payoutMul: line.multiplier ?? 0,
+      }));
+      const totalMul = wins.reduce((sum, w) => sum + w.payoutMul, 0);
+      
+      spinResult = {
+        grid: outcome.normalized,
+        wins,
+        totalMul,
+      };
+    }
+
+    // 5) 存储统一格式的结果供外部查询
+    this.lastResult = {
+      ...spinResult,
+      bet,
+      totalWin: outcome.totalWin,
+      timestamp: Date.now(),
+    };
+
+    return this.lastResult;
+  }
+
+  /**
+   * 📊 获取最近一次转轮的结果（统一 SpinResult 格式）
+   * 
+   * @returns {SpinResult|null} 最近一次的转轮结果，如果还未转轮则返回 null
+   *   格式：{ grid, wins, totalMul, bet, totalWin, timestamp }
+   */
+  getLastResult() {
+    return this.lastResult;
   }
 }

@@ -97,7 +97,7 @@ export class LevelManager {
     this.kills = 0;
     this.paused = false;
     this.elapsedMS = 0;
-    // 模式：默认仍保留 ticker 逻辑，但可切换为“每次 spin 刷怪”
+    // 模式：默认仍保留 ticker 逻辑，但可切换为"每次 spin 刷怪"
     this.spawnOnSpinOnly = options.spawnOnSpinOnly ?? false;
     // spin 刷怪节奏：每 3-5 次 spin 刷一批
     this.spawnBatchEveryMin = options.spawnBatchEveryMin ?? 3;
@@ -110,6 +110,10 @@ export class LevelManager {
     this.graceMS = options.graceMS ?? 6000;
     // 固定规则：每关消灭 100 个僵尸才能进入下一关
     this.killsToAdvance = options.killsToAdvance ?? 100;
+    
+    // 🎯 升级系统相关
+    this.shouldShowUpgrade = false;
+    this.upgradeSystem = options.upgradeSystem ?? null;
 
     this.overlay = this.createOverlay();
 
@@ -280,20 +284,53 @@ export class LevelManager {
   checkProgress() {
     if (this.kills >= this.killsToAdvance) {
       this.paused = true;
-      this.showComplete();
+      this.shouldShowUpgrade = true;
+      // 不再直接显示完成弹窗，而是标记需要进入升级选择
+      console.log('[LevelManager] Level complete, waiting for state machine to offer upgrades');
     }
   }
 
+  /**
+   * 🎯 检查是否应该提供升级选择（供 AdvanceState 调用）
+   */
+  shouldOfferChoice() {
+    return this.shouldShowUpgrade;
+  }
+
+  /**
+   * 🎯 获取升级选项（供 ChoiceState 调用）
+   */
+  rollUpgradeOptions() {
+    if (!this.upgradeSystem) {
+      console.warn('[LevelManager] UpgradeSystem not initialized');
+      return [];
+    }
+    return this.upgradeSystem.rollOptions();
+  }
+
+  /**
+   * 🎯 应用升级（供 ChoiceState 调用）
+   */
+  applyUpgrade(upgrade) {
+    if (!this.upgradeSystem) {
+      console.warn('[LevelManager] UpgradeSystem not initialized');
+      return;
+    }
+    this.upgradeSystem.applyUpgrade(upgrade);
+  }
+
+  /**
+   * 🎯 完成升级选择后的清理（供 ChoiceState 调用）
+   */
+  completeUpgradeChoice() {
+    this.shouldShowUpgrade = false;
+    this.nextLevel();
+  }
+
   showComplete() {
-    const levelNumber = this.currentLevel + 1;
-    const { box, title, info } = this.overlay;
-    title.textContent = `LEVEL ${levelNumber} COMPLETE`;
-    info.textContent = `Kills: ${this.kills}/${this.killsToAdvance}`;
-    box.style.display = 'block';
-    // 不要 stop Pixi ticker（会导致转动/子弹等系统冻结，造成 stopSpin 超时）
-    // 只暂停关卡逻辑，等待玩家点击 NEXT WAVE
-    this.paused = true;
-    this.onComplete?.({ level: this.currentLevel + 1, kills: this.kills });
+    // 🎯 已废弃：现在由状态机和 HUD 的升级界面处理
+    // 保留方法以防旧代码调用
+    console.log('[LevelManager] showComplete() is deprecated, use state machine instead');
   }
 
   showFail() {

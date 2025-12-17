@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { GlowFilter } from 'pixi-filters';
 import gsap from 'gsap';
 import { themeManager } from './ThemeManager.js';
@@ -8,9 +8,64 @@ const PRIMARY = () => colorInt(themeManager.getColor('primary'));
 const ENERGY = () => colorInt(themeManager.getColor('win'));
 const LASER = () => colorInt(themeManager.getColor('grid') || '#ac5bff');
 
+/**
+ * 🚀 性能优化：预渲染纹理（使用正确的 PixiJS v7 API）
+ */
+const createParticleTexture = (renderer, size = 4, color = 0xffffff) => {
+  const g = new Graphics();
+  g.circle(size, size, size);
+  g.fill({ color, alpha: 1 });
+  
+  // ✅ 使用 renderer.generateTexture（PixiJS v7 正确方式）
+  const texture = renderer.generateTexture(g);
+  
+  // 清理临时 Graphics
+  g.destroy();
+  
+  return texture;
+};
+
+// 全局缓存纹理（懒加载，需要 renderer）
+let particleTexturesCache = null;
+const getParticleTextures = (renderer) => {
+  if (!particleTexturesCache && renderer) {
+    particleTexturesCache = {
+      small: createParticleTexture(renderer, 2, 0xffffff),
+      medium: createParticleTexture(renderer, 3, 0xffffff),
+      large: createParticleTexture(renderer, 4, 0xffffff),
+    };
+  }
+  return particleTexturesCache;
+};
+
+// 共享 GlowFilter 实例（避免每次创建）
+let sharedGlowFilter = null;
+const getSharedGlowFilter = () => {
+  if (!sharedGlowFilter) {
+    sharedGlowFilter = new GlowFilter({
+      distance: 10,
+      outerStrength: 2,
+      color: 0xffffff,
+      quality: 0.15, // 降低质量以提升性能
+    });
+  }
+  return sharedGlowFilter;
+};
+
+/**
+ * 子弹系统 - 统一战斗事件处理（性能优化版）
+ * 
+ * 优化措施：
+ * - 对象池复用（粒子、爆炸环、斩击效果）
+ * - 使用 Sprite + 预渲染纹理代替 Graphics
+ * - 共享 GlowFilter 实例
+ * - 限制活跃特效数量
+ * - 减少 GSAP tween 创建
+ */
 export class BulletSystem {
   constructor(app, enemySystem, options = {}) {
     this.app = app;
+    this.ctx = { app, enemySystem };
     this.enemySystem = enemySystem;
     this.container = new Container();
     this.bullets = [];
@@ -18,14 +73,288 @@ export class BulletSystem {
     this.damagePerHit = options.damagePerHit ?? 10;
     this.onHit = options.onHit ?? null;
     this.floatingTextSystem = options.floatingTextSystem ?? null;
+    this.fxSystem = options.fxSystem ?? null;
+    this.audioSystem = options.audioSystem || null;
+
+    // 🚀 性能优化：对象池
+    this.particlePool = []; // Sprite 池
+    this.explosionRingPool = []; // Graphics 环池
+    this.slashHitPool = []; // Graphics 斩击池
+    this.activeParticles = []; // 活跃粒子追踪
+    this.activeExplosionRings = []; // 活跃爆炸环追踪
+    this.activeSlashHits = []; // 活跃斩击追踪
+
+    // 性能限制配置
+    this.maxActiveHitFX = 6; // 最多同时 6 个击中特效
+    this.maxParticlesPerExplosion = 12; // 每次爆炸最多 12 个粒子（从 22 减少）
+    this.currentHitFXCount = 0;
+    this.maxHitsPerFrame = 8; // 🚀 新增：每帧最多处理 8 个击中
+
+    // 🚀 预加载粒子纹理（传入 renderer）
+    if (this.app?.app?.renderer) {
+      getParticleTextures(this.app.app.renderer);
+    } else {
+      console.warn('[BulletSystem] Renderer not available, textures will be created on first use');
+    }
 
     this.app.gameLayer.addChild(this.container);
     this.update = this.update.bind(this);
     this.app.ticker.add(this.update);
   }
 
+  // ============ 对象池管理 ============
+
+  /**
+   * 从池中获取粒子 Sprite（确保完全重置）
+   */
+  getParticle() {
+    if (this.particlePool.length > 0) {
+      const p = this.particlePool.pop();
+      // 🚀 确保完全重置对象状态
+      p.alpha = 1;
+      p.scale.set(1);
+      p.rotation = 0;
+      p.visible = true;
+      p.tint = 0xFFFFFF;
+      p.x = 0;
+      p.y = 0;
+      return p;
+    }
+    
+    // 获取或创建纹理
+    const textures = getParticleTextures(this.app?.app?.renderer);
+    if (!textures) {
+      console.warn('[BulletSystem] Particle textures not available, using placeholder');
+      // 创建一个简单的占位 Sprite
+      const p = new Sprite(Texture.WHITE);
+      p.anchor.set(0.5);
+      p.width = 6;
+      p.height = 6;
+      return p;
+    }
+    
+    const p = new Sprite(textures.medium);
+    p.anchor.set(0.5);
+    return p;
+  }
+
+  /**
+   * 回收粒子到池中
+   */
+  returnParticle(particle) {
+    if (!particle || particle.destroyed) return;
+    gsap.killTweensOf(particle);
+    gsap.killTweensOf(particle.scale);
+    particle.removeFromParent();
+    if (this.particlePool.length < 50) {
+      this.particlePool.push(particle);
+    } else {
+      particle.destroy();
+    }
+  }
+
+  /**
+   * 从池中获取爆炸环（确保完全重置）
+   */
+  getExplosionRing() {
+    if (this.explosionRingPool.length > 0) {
+      const ring = this.explosionRingPool.pop();
+      ring.clear();
+      // 🚀 确保完全重置对象状态
+      ring.alpha = 1;
+      ring.scale.set(1);
+      ring.rotation = 0;
+      ring.visible = true;
+      ring.filters = [];
+      ring.x = 0;
+      ring.y = 0;
+      return ring;
+    }
+    return new Graphics();
+  }
+
+  /**
+   * 回收爆炸环到池中
+   */
+  returnExplosionRing(ring) {
+    if (!ring || ring.destroyed) return;
+    gsap.killTweensOf(ring);
+    gsap.killTweensOf(ring.scale);
+    ring.clear();
+    ring.removeFromParent();
+    if (this.explosionRingPool.length < 10) {
+      this.explosionRingPool.push(ring);
+    } else {
+      ring.destroy();
+    }
+  }
+
+  /**
+   * 从池中获取斩击效果（确保完全重置）
+   */
+  getSlashHit() {
+    if (this.slashHitPool.length > 0) {
+      const slash = this.slashHitPool.pop();
+      slash.clear();
+      // 🚀 确保完全重置对象状态
+      slash.alpha = 1;
+      slash.scale.set(1);
+      slash.rotation = 0;
+      slash.visible = true;
+      slash.filters = [];
+      slash.x = 0;
+      slash.y = 0;
+      return slash;
+    }
+    return new Graphics();
+  }
+
+  /**
+   * 回收斩击效果到池中
+   */
+  returnSlashHit(slash) {
+    if (!slash || slash.destroyed) return;
+    gsap.killTweensOf(slash);
+    gsap.killTweensOf(slash.scale);
+    slash.clear();
+    slash.removeFromParent();
+    if (this.slashHitPool.length < 10) {
+      this.slashHitPool.push(slash);
+    } else {
+      slash.destroy();
+    }
+  }
+
+  // ============ 统一战斗事件入口 ============
+  async playCombatEvent(ev, modifiers = null) {
+    this.currentModifiers = modifiers || {
+      extraProjectiles: 0,
+      pierce: 0,
+      chain: 0,
+      aoeScale: 1.0,
+      critChance: 0,
+      lifesteal: 0,
+      overloadBonus: 0,
+    };
+
+    switch (ev.type) {
+      case 'Shoot':
+        return this.playShoot(ev);
+      case 'Grenade':
+        return this.playGrenade(ev);
+      case 'Missile':
+        return this.playMissile(ev);
+      case 'Overload':
+        return this.playOverload(ev);
+      default:
+        console.warn(`未知战斗事件类型: ${ev.type}`);
+    }
+  }
+
   setOnHit(fn) {
     this.onHit = fn;
+  }
+
+  // ============ 战斗事件实现 ============
+
+  async playShoot(ev) {
+    const mods = this.currentModifiers || {};
+    const { count = 1, dmg = this.damagePerHit, bulletType = 1, startX, startY } = ev;
+    
+    this.audioSystem?.play('shoot', { volume: 0.6 });
+    
+    const totalCount = count + (mods.extraProjectiles || 0);
+    
+    for (let i = 0; i < totalCount; i++) {
+      const target = this.enemySystem.pickTarget?.() ?? this.enemySystem.zombies[0];
+      if (!target || target.destroyed) continue;
+
+      await this.fireBulletTo(target, { 
+        dmg, 
+        bulletType, 
+        startX, 
+        startY 
+      });
+
+      if (i < totalCount - 1) {
+        await this.delay(80);
+      }
+    }
+  }
+
+  async playGrenade(ev) {
+    const { dmg = this.damagePerHit * 1.5, startX, startY } = ev;
+    const target = this.enemySystem.pickTarget?.() ?? this.enemySystem.zombies[0];
+    if (!target || target.destroyed) return;
+
+    await this.fireBulletTo(target, { 
+      dmg, 
+      bulletType: 2, 
+      startX, 
+      startY 
+    });
+  }
+
+  async playMissile(ev) {
+    const { dmg = this.damagePerHit * 2.2, startX, startY } = ev;
+    const target = this.enemySystem.pickTarget?.() ?? this.enemySystem.zombies[0];
+    if (!target || target.destroyed) return;
+
+    await this.fireBulletTo(target, { 
+      dmg, 
+      bulletType: 4, 
+      startX, 
+      startY 
+    });
+  }
+
+  async playOverload(ev) {
+    const { dmg = this.damagePerHit * 2, startX = 0, startY = this.app.app.screen.height / 2 } = ev;
+    
+    this.shootLaser(startX, startY, null);
+    await this.delay(200);
+  }
+
+  fireBulletTo(target, { dmg, bulletType = 1, startX, startY }) {
+    return new Promise((resolve) => {
+      const sx = startX ?? 0;
+      const sy = startY ?? this.app.app.screen.height / 2;
+
+      const sprite =
+        bulletType === 4 ? this.createType4() : bulletType === 2 ? this.createType2() : this.createType1();
+      sprite.x = sx;
+      sprite.y = sy;
+
+      const targetGlobal =
+        typeof target.getGlobalPosition === 'function' ? target.getGlobalPosition() : null;
+      const targetPos = targetGlobal ? this.container.toLocal(targetGlobal) : target;
+      const dx = targetPos.x - sx;
+      const dy = targetPos.y - sy;
+      const angle = Math.atan2(dy, dx);
+      sprite.rotation = angle;
+
+      const speed =
+        bulletType === 4 ? this.speed * 0.85 : bulletType === 2 ? this.speed * 0.7 : this.speed * 1.1;
+      const trail = bulletType === 2 || bulletType === 4;
+      if (trail) {
+        gsap.to(sprite.scale, { x: 1.1, y: 1.1, duration: 0.2, yoyo: true, repeat: -1 });
+      }
+
+      this.container.addChild(sprite);
+      
+      this.bullets.push({ 
+        sprite, 
+        target, 
+        speed, 
+        type: bulletType,
+        dmg,
+        onHit: (hitPos) => resolve(hitPos)
+      });
+    });
+  }
+
+  delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   createType1() {
@@ -64,15 +393,12 @@ export class BulletSystem {
   }
 
   createType4() {
-    // 爆炸弹（火箭/榴弹）
     const holder = new Container();
     const body = new Graphics();
     body.roundRect(-10, -4, 22, 8, 4);
     body.fill({ color: ENERGY(), alpha: 1 });
-    // 头部
     body.poly([12, 0, 20, 4, 20, -4]);
     body.fill({ color: 0xffffff, alpha: 0.8 });
-    // 尾焰
     const flame = new Graphics();
     flame.circle(-16, 0, 5);
     flame.fill({ color: 0xff6633, alpha: 0.7 });
@@ -84,7 +410,6 @@ export class BulletSystem {
     });
     holder.filters = [glow];
     holder.addChild(flame, body);
-    // 尾焰闪烁
     gsap.to(flame, { alpha: 0.2, duration: 0.08, yoyo: true, repeat: -1, ease: 'steps(1)' });
     return holder;
   }
@@ -106,7 +431,6 @@ export class BulletSystem {
     ];
     this.container.addChild(line);
 
-    // 伤害所有在射线附近的敌人
     const enemies = this.enemySystem.zombies.filter((z) => !z.destroyed);
     enemies.forEach((z) => {
       const gpos = z.getGlobalPosition ? z.getGlobalPosition() : null;
@@ -160,6 +484,9 @@ export class BulletSystem {
   update() {
     if (!this.bullets.length) return;
 
+    // 🚀 性能优化：限制每帧击中处理数量
+    let hitsProcessedThisFrame = 0;
+
     for (let i = this.bullets.length - 1; i >= 0; i -= 1) {
       const b = this.bullets[i];
       const { sprite, target, speed, type } = b;
@@ -183,26 +510,70 @@ export class BulletSystem {
       sprite.y += vy;
 
       if (dist < 20) {
-        const isCrit = type === 3 || Math.random() < 0.1;
-        const baseDmg = this.damagePerHit * (type === 2 ? 1.5 : type === 4 ? 2.2 : 1);
+        // 🚀 性能优化：如果本帧已处理太多击中，跳到下一帧
+        if (hitsProcessedThisFrame >= this.maxHitsPerFrame) {
+          continue; // 留到下一帧处理
+        }
+        hitsProcessedThisFrame++;
+
+        const mods = this.currentModifiers || {};
+        
+        const baseCritChance = type === 3 ? 0.3 : 0.1;
+        const finalCritChance = baseCritChance + (mods.critChance || 0);
+        const isCrit = Math.random() < finalCritChance;
+        
+        const baseDmg = b.dmg ?? (this.damagePerHit * (type === 2 ? 1.5 : type === 4 ? 2.2 : 1));
         const damage = (isCrit ? 2 : 1) * baseDmg;
+        
+        const impactX = targetPos?.x ?? sprite.x;
+        const impactY = targetPos?.y ?? sprite.y;
+        
         target.takeDamage?.(damage);
-        this.floatingTextSystem?.showText(targetPos.x, targetPos.y, damage, isCrit);
-        this.onHit?.(damage, { isCrit, target, pos: targetPos });
+        this.floatingTextSystem?.showText(impactX, impactY, damage, isCrit);
+        
+        if (mods.lifesteal > 0) {
+          const healAmount = damage * mods.lifesteal;
+          this.ctx.playerSystem?.heal?.(healAmount);
+          console.log(`[Lifesteal] +${healAmount.toFixed(1)} HP`);
+        }
+        
+        this.onHit?.(damage, { isCrit, target, pos: { x: impactX, y: impactY } });
 
-        // 命中“斩击/星芒”特效（参考效果图的黄光刀痕）
-        this.spawnSlashHit(targetPos.x, targetPos.y, {
-          strong: type === 4 || isCrit,
-          color: type === 4 ? ENERGY() : 0xfff07a,
-        });
+        // 🚀 性能优化：所有视觉效果由 FXSystem 统一处理
+        // 斩击效果
+        const slashStrength = (type === 4 || isCrit) ? 2.0 : 1.0;
+        this.fxSystem?.slash?.(impactX, impactY, slashStrength);
 
+        // 击中火花
+        if (isCrit) {
+          this.fxSystem?.critSpark?.(impactX, impactY);
+        } else {
+          this.fxSystem?.hitSpark?.(impactX, impactY);
+        }
+
+        // 音效
+        if (type === 2 || type === 4) {
+          this.audioSystem?.play('explosion', { volume: type === 4 ? 1.0 : 0.7 });
+        } else {
+          this.audioSystem?.play('hit', { volume: isCrit ? 0.8 : 0.5 });
+        }
+
+        // 相机震动
+        const shakeIntensity = type === 4 ? 6 : (isCrit ? 4 : 2);
+        const shakeDuration = type === 4 ? 0.25 : (isCrit ? 0.2 : 0.15);
+        this.fxSystem?.cameraShake?.(shakeIntensity, shakeDuration);
+
+        const aoeScale = mods.aoeScale || 1.0;
+        
         if (type === 2) {
-          // 小范围 AOE
+          const aoeRadius = 60 * aoeScale;
+          this.fxSystem?.shockwaveAOE?.(impactX, impactY, aoeRadius);
+          
           const enemies = this.enemySystem.zombies.filter((z) => !z.destroyed);
           enemies.forEach((z) => {
             const gpos = z.getGlobalPosition ? z.getGlobalPosition() : null;
             const pos = gpos ? this.container.toLocal(gpos) : z;
-            if (Math.hypot(pos.x - targetPos.x, pos.y - targetPos.y) < 60) {
+            if (Math.hypot(pos.x - impactX, pos.y - impactY) < aoeRadius) {
               if (z !== target) {
                 z.takeDamage?.(damage * 0.5);
               }
@@ -210,20 +581,35 @@ export class BulletSystem {
           });
         }
         if (type === 4) {
-          // 大范围爆炸 + 视觉
-          this.spawnExplosion(targetPos.x, targetPos.y);
+          // 爆炸特效由 FXSystem 处理
+          this.fxSystem?.explosion?.(impactX, impactY, aoeScale);
+          const innerRadius = 60 * aoeScale;
+          const outerRadius = 110 * aoeScale;
+          
+          this.fxSystem?.shockwaveAOE?.(impactX, impactY, outerRadius);
+          
           const enemies = this.enemySystem.zombies.filter((z) => !z.destroyed);
           enemies.forEach((z) => {
             const gpos = z.getGlobalPosition ? z.getGlobalPosition() : null;
             const pos = gpos ? this.container.toLocal(gpos) : z;
-            const d = Math.hypot(pos.x - targetPos.x, pos.y - targetPos.y);
-            if (d < 110) {
+            const d = Math.hypot(pos.x - impactX, pos.y - impactY);
+            if (d < outerRadius) {
               if (z !== target) {
-                z.takeDamage?.(damage * (d < 60 ? 0.85 : 0.45));
+                z.takeDamage?.(damage * (d < innerRadius ? 0.85 : 0.45));
               }
             }
           });
         }
+        
+        if (mods.pierce > 0 && type !== 2 && type !== 4) {
+          this.applyPierce(impactX, impactY, target, damage * 0.6, mods.pierce);
+        }
+        
+        if (mods.chain > 0 && type === 2) {
+          this.applyChain(impactX, impactY, target, damage * 0.4, mods.chain);
+        }
+
+        b.onHit?.({ x: impactX, y: impactY });
 
         this.destroyBullet(i);
         continue;
@@ -249,13 +635,24 @@ export class BulletSystem {
     this.bullets.splice(index, 1);
   }
 
+  /**
+   * 🚀 性能优化版：爆炸效果（使用对象池 + Sprite）
+   */
   spawnExplosion(x, y) {
-    const ring = new Graphics();
+    if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) {
+      console.warn('Invalid explosion coordinates:', x, y);
+      return;
+    }
+
+    // 爆炸环
+    const ring = this.getExplosionRing();
     ring.circle(0, 0, 14);
     ring.stroke({ width: 4, color: ENERGY(), alpha: 0.9 });
     ring.x = x;
     ring.y = y;
     this.container.addChild(ring);
+    this.activeExplosionRings.push(ring);
+
     gsap.to(ring, {
       alpha: 0,
       duration: 0.35,
@@ -263,36 +660,64 @@ export class BulletSystem {
         ring.scale.x += 0.18;
         ring.scale.y += 0.18;
       },
-      onComplete: () => ring.destroy({ children: true }),
+      onComplete: () => {
+        const idx = this.activeExplosionRings.indexOf(ring);
+        if (idx > -1) this.activeExplosionRings.splice(idx, 1);
+        this.returnExplosionRing(ring);
+      },
     });
 
-    const count = 22;
+    // 🚀 性能优化：减少粒子数量（22 -> 12）
+    // 🚀 性能优化：跳过低帧率时的粒子生成
+    const deltaMS = this.app.app.ticker.deltaMS || 16;
+    const skipParticles = deltaMS > 33; // 如果帧率 < 30fps，跳过粒子
+    
+    const count = skipParticles ? 6 : this.maxParticlesPerExplosion;
+    const colors = [ENERGY(), PRIMARY(), 0xff00ff];
+    
     for (let i = 0; i < count; i += 1) {
-      const p = new Graphics();
-      p.circle(0, 0, 2 + Math.random() * 2);
-      p.fill({ color: [ENERGY(), PRIMARY(), 0xff00ff][Math.floor(Math.random() * 3)], alpha: 1 });
+      const p = this.getParticle();
+      p.tint = colors[Math.floor(Math.random() * 3)];
       p.x = x;
       p.y = y;
+      p.scale.set(0.5 + Math.random() * 0.5);
       this.container.addChild(p);
+      this.activeParticles.push(p);
+      
       const ang = Math.random() * Math.PI * 2;
       const dist = 60 + Math.random() * 70;
+      
       gsap.to(p, {
         x: x + Math.cos(ang) * dist,
         y: y + Math.sin(ang) * dist,
         alpha: 0,
         duration: 0.55 + Math.random() * 0.25,
         ease: 'power2.out',
-        onComplete: () => p.destroy({ children: true }),
+        onComplete: () => {
+          const idx = this.activeParticles.indexOf(p);
+          if (idx > -1) this.activeParticles.splice(idx, 1);
+          this.returnParticle(p);
+        },
       });
     }
   }
 
+  /**
+   * 🚀 性能优化版：斩击效果（使用对象池）
+   */
   spawnSlashHit(x, y, { strong = false, color = 0xfff07a } = {}) {
-    // 尽量轻量：不做对象池，但数量很少，且只在命中触发
-    const g = new Graphics();
+    if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) {
+      console.warn('Invalid slash hit coordinates:', x, y);
+      return;
+    }
+
+    this.currentHitFXCount++;
+
+    const g = this.getSlashHit();
     g.x = x;
     g.y = y;
     this.container.addChild(g);
+    this.activeSlashHits.push(g);
 
     const count = strong ? 9 : 6;
     const lenBase = strong ? 56 : 40;
@@ -303,13 +728,11 @@ export class BulletSystem {
       g.moveTo(0, 0);
       g.lineTo(Math.cos(ang) * len, Math.sin(ang) * len);
       g.stroke({ width: w, color, alpha: 0.95, cap: 'round' });
-      // 白色核心
       g.moveTo(0, 0);
       g.lineTo(Math.cos(ang) * (len * 0.7), Math.sin(ang) * (len * 0.7));
       g.stroke({ width: Math.max(1, w - 2), color: 0xffffff, alpha: 0.9, cap: 'round' });
     }
 
-    // 轻微缩放/旋转模拟“刀光扫过”
     g.rotation = (Math.random() - 0.5) * 0.6;
     g.alpha = 1;
     gsap.to(g, {
@@ -321,7 +744,131 @@ export class BulletSystem {
         g.scale.y += strong ? 0.06 : 0.05;
         g.rotation += (strong ? 0.08 : 0.06) * (Math.random() < 0.5 ? -1 : 1);
       },
-      onComplete: () => g.destroy({ children: true }),
+      onComplete: () => {
+        this.currentHitFXCount--;
+        const idx = this.activeSlashHits.indexOf(g);
+        if (idx > -1) this.activeSlashHits.splice(idx, 1);
+        this.returnSlashHit(g);
+      },
+    });
+  }
+
+  /**
+   * 穿透伤害（所有特效由 FXSystem 处理）
+   */
+  applyPierce(impactX, impactY, mainTarget, pierceDamage, pierceCount) {
+    if (pierceCount <= 0) return;
+
+    const enemies = this.enemySystem.zombies.filter(
+      (z) => !z.destroyed && z !== mainTarget
+    );
+
+    const behindTargets = enemies
+      .map((z) => {
+        const gpos = z.getGlobalPosition ? z.getGlobalPosition() : null;
+        const pos = gpos ? this.container.toLocal(gpos) : z;
+        return { enemy: z, pos, dist: Math.hypot(pos.x - impactX, pos.y - impactY) };
+      })
+      .filter((t) => t.pos.x > impactX)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, pierceCount);
+
+    behindTargets.forEach(({ enemy, pos }) => {
+      enemy.takeDamage?.(pierceDamage);
+      this.floatingTextSystem?.showText(pos.x, pos.y, pierceDamage, false);
+      // 穿透斩击效果由 FXSystem 处理
+      this.fxSystem?.slash?.(pos.x, pos.y, 0.8);
+      this.fxSystem?.hitSpark?.(pos.x, pos.y);
+    });
+
+    if (behindTargets.length > 0) {
+      console.log(`[Pierce] Hit ${behindTargets.length} targets`);
+    }
+  }
+
+  /**
+   * 连锁伤害（所有特效由 FXSystem 处理）
+   */
+  applyChain(impactX, impactY, mainTarget, chainDamage, chainCount) {
+    if (chainCount <= 0) return;
+
+    const enemies = this.enemySystem.zombies.filter(
+      (z) => !z.destroyed && z !== mainTarget
+    );
+
+    let currentPos = { x: impactX, y: impactY };
+    const chainedTargets = [];
+
+    for (let i = 0; i < chainCount; i++) {
+      const nextTarget = enemies
+        .filter((z) => !chainedTargets.includes(z))
+        .map((z) => {
+          const gpos = z.getGlobalPosition ? z.getGlobalPosition() : null;
+          const pos = gpos ? this.container.toLocal(gpos) : z;
+          return { enemy: z, pos, dist: Math.hypot(pos.x - currentPos.x, pos.y - currentPos.y) };
+        })
+        .sort((a, b) => a.dist - b.dist)[0];
+
+      if (!nextTarget || nextTarget.dist > 150) break;
+
+      nextTarget.enemy.takeDamage?.(chainDamage * Math.pow(0.8, i));
+      this.floatingTextSystem?.showText(
+        nextTarget.pos.x, 
+        nextTarget.pos.y, 
+        chainDamage * Math.pow(0.8, i), 
+        false
+      );
+
+      // 连锁闪电和斩击效果由 FXSystem 处理
+      this.fxSystem?.chainLightning?.(currentPos.x, currentPos.y, nextTarget.pos.x, nextTarget.pos.y);
+      this.fxSystem?.slash?.(nextTarget.pos.x, nextTarget.pos.y, 0.8);
+      this.fxSystem?.hitSpark?.(nextTarget.pos.x, nextTarget.pos.y);
+
+      chainedTargets.push(nextTarget.enemy);
+      currentPos = nextTarget.pos;
+    }
+
+    if (chainedTargets.length > 0) {
+      console.log(`[Chain] Hit ${chainedTargets.length} targets`);
+    }
+  }
+
+  /**
+   * 🚀 性能优化版：闪电效果（使用对象池）
+   */
+  spawnChainLightning(x1, y1, x2, y2) {
+    const line = this.getSlashHit(); // 复用斩击池
+    
+    const steps = 5;
+    const dx = (x2 - x1) / steps;
+    const dy = (y2 - y1) / steps;
+    
+    line.moveTo(x1, y1);
+    for (let i = 1; i <= steps; i++) {
+      const offsetX = (Math.random() - 0.5) * 20;
+      const offsetY = (Math.random() - 0.5) * 20;
+      line.lineTo(x1 + dx * i + offsetX, y1 + dy * i + offsetY);
+    }
+    
+    line.stroke({ width: 3, color: 0xffff00, alpha: 0.9 });
+    
+    // 🚀 性能优化：复用共享的 GlowFilter
+    const filter = getSharedGlowFilter();
+    filter.color = 0xffff00;
+    line.filters = [filter];
+    
+    this.container.addChild(line);
+    this.activeSlashHits.push(line);
+
+    gsap.to(line, {
+      alpha: 0,
+      duration: 0.2,
+      onComplete: () => {
+        line.filters = []; // 清除 filter 引用
+        const idx = this.activeSlashHits.indexOf(line);
+        if (idx > -1) this.activeSlashHits.splice(idx, 1);
+        this.returnSlashHit(line);
+      },
     });
   }
 }

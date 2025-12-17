@@ -6,7 +6,7 @@ const ENERGY = () => themeManager.getColor('win');
 const BACKGROUND = () => themeManager.getColor('background');
 
 export class RTPManager {
-  constructor() {
+  constructor(options = {}) {
     this.totalBet = 0;
     this.totalWin = 0;
     this.totalSpins = 0;
@@ -27,10 +27,20 @@ export class RTPManager {
       levelKills: 0,
       levelTarget: 100,
     };
-    this.panel = this.createPanel();
-    this.fields = this.createFields(this.panel);
-    this.updatePanel();
-    themeManager.subscribe((theme) => this.updateTheme(theme));
+    
+    // 🎛️ 可选：创建独立的调试面板（默认禁用，避免重复渲染）
+    this.enableDebugPanel = options.enableDebugPanel ?? false;
+    
+    if (this.enableDebugPanel) {
+      this.panel = this.createPanel();
+      this.fields = this.createFields(this.panel);
+      this.updatePanel();
+      themeManager.subscribe((theme) => this.updateTheme(theme));
+    } else {
+      this.panel = null;
+      this.fields = {};
+      console.log('[RTPManager] Debug panel disabled, using StatsPanel for rendering');
+    }
   }
 
   recordBet(bet) {
@@ -129,6 +139,11 @@ export class RTPManager {
   }
 
   updatePanel() {
+    // 🎛️ 只在启用调试面板时更新 DOM
+    if (!this.enableDebugPanel || !this.panel || !this.fields) {
+      return; // StatsPanel 会负责渲染
+    }
+
     const rtp = this.calculateRTP();
     const hitRate = this.totalSpins ? (this.hitCount / this.totalSpins) * 100 : 0;
     const net = this.totalWin - this.totalBet;
@@ -136,9 +151,9 @@ export class RTPManager {
     const rtpColor = rtp < 90 ? '#FF4444' : rtp > 100 ? '#00FF88' : ACCENT();
     const netColor = net < 0 ? '#FF4444' : net > 0 ? '#00FF88' : ACCENT();
 
-    this.fields.spins.textContent = `${this.totalSpins}`;
-    this.fields.hitRate.textContent = `${this.formatNumber(hitRate, 1)}%`;
-    this.fields.combo.textContent = `${this.combo}`;
+    if (this.fields.spins) this.fields.spins.textContent = `${this.totalSpins}`;
+    if (this.fields.hitRate) this.fields.hitRate.textContent = `${this.formatNumber(hitRate, 1)}%`;
+    if (this.fields.combo) this.fields.combo.textContent = `${this.combo}`;
 
     // 外部战况
     const ex = this.external ?? {};
@@ -162,25 +177,33 @@ export class RTPManager {
       this.fields.levelProgress.textContent = `Lv${lv} ${k} / ${t} (${this.formatNumber(pct, 0)}%)`;
     }
 
-    this.fields.in.textContent = this.formatNumber(this.totalBet);
-    this.fields.out.textContent = this.formatNumber(this.totalWin);
+    if (this.fields.in) this.fields.in.textContent = this.formatNumber(this.totalBet);
+    if (this.fields.out) this.fields.out.textContent = this.formatNumber(this.totalWin);
 
-    this.fields.rtp.textContent = `${this.formatNumber(rtp, 2)}%`;
-    this.fields.rtp.style.color = rtpColor;
+    if (this.fields.rtp) {
+      this.fields.rtp.textContent = `${this.formatNumber(rtp, 2)}%`;
+      this.fields.rtp.style.color = rtpColor;
+    }
 
-    this.fields.net.textContent = this.formatNumber(net);
-    this.fields.net.style.color = netColor;
+    if (this.fields.net) {
+      this.fields.net.textContent = this.formatNumber(net);
+      this.fields.net.style.color = netColor;
+    }
   }
 
   setExternalStats(next = {}) {
     if (!next || typeof next !== 'object') return;
     this.external = { ...(this.external ?? {}), ...next };
-    // 只更新文本，不重建 DOM
-    this.updatePanel();
+    // 🎛️ 只在启用调试面板时更新 DOM（StatsPanel 会负责主要渲染）
+    if (this.enableDebugPanel) {
+      this.updatePanel();
+    }
   }
 
   updateTheme(theme) {
-    if (!theme) return;
+    // 🎛️ 只在启用调试面板时更新主题
+    if (!this.enableDebugPanel || !this.panel || !theme) return;
+    
     this.panel.style.background = `${theme.background}e6`;
     this.panel.style.color = theme.accent;
     this.panel.style.border = `1px solid rgba(0, 240, 255, 0.3)`;
