@@ -3,6 +3,14 @@ Zombie Slot Defense Pro - 产品需求文档 (PRD)
 
 轻量 HTML5 槽机策略游戏仓库（Slot + Rogue-like / Tower-Defense 元素）。此仓库包含源码、系统设计文档与发布流水线。
 
+## 项目简介
+slotgamerougelike 是一个前端游戏原型工程，目标是提供：
+- 一个基于 `pixi.js` 的渲染与游玩框架，便于快速迭代游戏机制；
+- 一套模块化的游戏系统（SlotSystem、BulletSystem、EnemySystem、HUD 等），便于复用与教学；
+- 完整的文档集（`docs/`）与发布流程（`standard-version` + GitHub Actions），方便团队协作与持续发布；
+
+该项目适合用于原型开发、课堂示例或作为入门级的 HTML5 游戏模板。
+
 **主要内容**
 - 源码：`src/`
 - 文档：`docs/`（已生成 `docs/TOC.md` 作为目录）
