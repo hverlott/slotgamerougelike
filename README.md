@@ -129,3 +129,19 @@ v1.0 (Demo)
 自动旋转 (Auto) 可随时点击停止，且能正确完成当前局。
 画面中无任何 Emoji，全部为图形/图片资源。
 长时间挂机 (Auto 模式) 100 局以上不崩溃、不卡死。
+
+## Documentation
+
+项目文档已收集在 `docs/` 目录。为便于浏览，已生成文档目录 `docs/TOC.md`，包含以下主题摘要：
+
+- Guides: 构建、音频、组合系统、升级集成、场景构成、状态机架构等。
+- HUD / UI: HUD 集成、重构与修复说明。
+- Systems & Performance: 子弹系统、FX 重构、性能优化说明。
+- Audio: 音频系统修复与加固指南。
+- Premium / UI Upgrades: 高级 UI/皮肤与 VFX 改进说明。
+- Dashboards & KPIs: KPI 仪表盘设计与实现。
+- Responsive & Mobile: 响应式与移动端 UX 指南。
+
+请阅读 `docs/TOC.md` 以获得完整目录并跳转到具体文档。
+
+例如： [docs/TOC.md](docs/TOC.md)
