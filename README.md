@@ -60,3 +60,53 @@ npm run build    # 生产构建
 请阅读 `docs/TOC.md` 以获得完整目录并跳转到具体文档。
 
 例如： [docs/TOC.md](docs/TOC.md)
+
+## 版本迭代（详细）
+
+以下为每个已发布版本的迭代详情（按时间倒序）：
+
+### v1.0.2 — 2025-12-18
+
+This is a detailed release note for `v1.0.2` generated from the project's changelog and recent changes.
+
+Highlights
+- Docs: Large set of design, implementation and fix documents added under `docs/` to explain systems and fixes.
+- Systems: Multiple game system updates and refactors (Audio, HUD, FX, Bullet, Combo, Build, Upgrade systems).
+- Version bump: package version updated to `1.0.2`.
+
+Notable Changes (from CHANGELOG)
+
+See `CHANGELOG.md` for the full generated entries. Key items:
+
+- Bumped version to `1.0.2` and updated `CHANGELOG.md`.
+- Numerous docs added to `docs/` covering architecture, performance, HUD fixes, audio hardening and more.
+- Multiple source files updated across `src/` to improve state machine, turn planning and UI components.
+
+Upgrade notes
+
+- No breaking API changes expected for consumers — this is primarily documentation and internal improvements.
+- If you build locally, run:
+
+```powershell
+npm ci
+npm run build
+```
+
+How this release was made
+
+- Versioning: `standard-version` was used to bump `package.json` and update `CHANGELOG.md`.
+- Tag: `v1.0.2` created and pushed to remote.
+
+Contributors
+
+Thanks to everyone who contributed changes and documentation.
+
+---
+
+### v1.0.1 — 2025-12-17
+
+（变更条目见 `CHANGELOG.md`）
+
+- 该版本包含一系列小的修复与初始发布步骤，详细条目已记录在 `CHANGELOG.md`，并通过 `standard-version` 维护。
+
+如果需要，我可以把 `CHANGELOG.md` 中的每个条目也逐条展开并放入此处，或者为更早的 tag（如 `v1.0.0`）生成相同形式的详细说明。
