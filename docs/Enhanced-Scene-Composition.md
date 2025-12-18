@@ -29,7 +29,7 @@ Stage (舞台根):
       ├─ 3: Enemy System (敌人)
       ├─ 4: Bullet System (子弹/特效)
       ├─ 5: Floating Text System (漂浮文字)
-      ├─ 6: Slot System (老虎机)
+      ├─ 6: Spin System (老虎机)
       └─ 7: Jackpot System (Boss)
 ```
 
@@ -554,7 +554,7 @@ console.log('GameLayer children:', game.gameLayer.children.length);
 
 // 应该输出:
 // Stage children: 4 (bg, particles, vignette, gameLayer)
-// GameLayer children: 7+ (bloom, frame, grid, enemies, bullets, text, slot, jackpot)
+// GameLayer children: 7+ (bloom, frame, grid, enemies, bullets, text, spin, jackpot)
 ```
 
 ---

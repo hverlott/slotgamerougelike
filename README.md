@@ -1,7 +1,7 @@
-Zombie Slot Defense Pro - 产品需求文档 (PRD)
+Zombie Spin Defense Pro - 产品需求文档 (PRD)
 # stgamerougelike
 
-轻量 HTML5 槽机策略游戏仓库（Slot + Rogue-like / Tower-Defense 元素）。此仓库包含源码、系统设计文档与发布流水线。
+轻量 HTML5 槽机策略游戏仓库（Spin + Rogue-like / Tower-Defense 元素）。此仓库包含源码、系统设计文档与发布流水线。
 
 ## 项目简介
 slotgamerougelike 是一个前端游戏原型工程，目标是提供：
