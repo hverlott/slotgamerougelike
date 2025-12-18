@@ -1,0 +1,52 @@
+name: Create Release From File
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to create release for'
+        required: true
+        default: 'v1.0.2'
+      release_file:
+        description: 'Path to release notes file in repo'
+        required: true
+        default: 'releases/v1.0.2.md'
+      draft:
+        description: 'Create as draft'
+        required: false
+        default: 'false'
+      prerelease:
+        description: 'Mark as prerelease'
+        required: false
+        default: 'false'
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read release notes file
+        id: read_notes
+        run: |
+          if [ ! -f "${{ github.event.inputs.release_file }}" ]; then
+            echo "Release file not found: ${{ github.event.inputs.release_file }}"
+            exit 1
+          fi
+          echo "RELEASE_BODY<<EOF" >> $GITHUB_ENV
+          cat "${{ github.event.inputs.release_file }}" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          release_name: ${{ github.event.inputs.tag }}
+          body: ${{ env.RELEASE_BODY }}
+          draft: ${{ github.event.inputs.draft }}
+          prerelease: ${{ github.event.inputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
