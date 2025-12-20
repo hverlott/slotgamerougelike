@@ -1,7 +1,7 @@
-# Zombie Spin Defense - 项目综合需求文档与开发计划
+﻿# Zombie Spin Defense - 项目综合需求文档与开发计划
 
 ## 1. 项目概述
-本项目是一个融合了**老虎机（Slot）**随机性与**塔防（Tower Defense）**策略性的混合休闲游戏（Hybrid Casual）。玩家通过旋转老虎机获取弹药、技能和增益，消灭不断逼近的僵尸大军，保护防线并击败 Boss。
+本项目是一个融合了**老虎机（spin）**随机性与**塔防（Tower Defense）**策略性的混合休闲游戏（Hybrid Casual）。玩家通过旋转老虎机获取弹药、技能和增益，消灭不断逼近的僵尸大军，保护防线并击败 Boss。
 
 ---
 
@@ -57,7 +57,7 @@
 | 模块 | 功能点 | 技术实现方案 | 接口规范/数据交互 | 优先级 |
 | :--- | :--- | :--- | :--- | :--- |
 | **Core** | **游戏主循环与状态机** | 使用 `GameLoop` 类驱动，结合 `Pixi.Ticker`。状态机管理 `IDLE`, `SPINNING`, `COMBAT`, `WIN`, `GAMEOVER` 状态。 | `GameContext` 对象在各系统间传递状态。 | P0 |
-| **Slot** | **转轮系统 (SlotSystem)** | 基于 `Container` 和 `Mask` 实现滚动。使用 `GSAP` 处理回弹动画。支持 `ResultBank` 注入结果。 | `playSpin(bet): Promise<SpinResult>` | P0 |
+| **spin** | **转轮系统 (SlotSystem)** | 基于 `Container` 和 `Mask` 实现滚动。使用 `GSAP` 处理回弹动画。支持 `ResultBank` 注入结果。 | `playSpin(bet): Promise<SpinResult>` | P0 |
 | **Combat** | **敌人系统 (EnemySystem)** | 网格化管理 (`GridSystem`)。基于时间轴的移动逻辑。支持击退、冻结效果。 | `spawnZombie(col, type)`, `takeDamage(id, amount)` | P0 |
 | **Combat** | **子弹与打击 (BulletSystem)** | 对象池管理子弹。简单的 AABB 或距离碰撞检测。命中后触发 `FXSystem`。 | `fire(type, origin, target)` | P0 |
 | **Math** | **RTP 控制 (RTPManager)** | `ResultBank` 预生成 10000+ 次结果。实时统计 `TotalBet` vs `TotalWin`，动态调整命中率。 | `getResult(level): SpinResult`, `recordHit(dmg)` | P1 |
@@ -147,3 +147,4 @@
 **版本**: 1.0.0
 **日期**: 2025-12-20
 **状态**: Draft
+

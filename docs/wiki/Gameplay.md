@@ -1,6 +1,6 @@
-# Gameplay（玩法概述）
+﻿# Gameplay（玩法概述）
 
-SlotGameRougelike 是一个将老虎机（slot）机制与 rougelike / 防守元素结合的轻量前端原型。
+SlotGameRougelike 是一个将老虎机（spin）机制与 rougelike / 防守元素结合的轻量前端原型。
 
 核心要点：
 - 玩家通过拉动/触发“老虎机”来获得资源与技能。

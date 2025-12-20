@@ -1,4 +1,4 @@
-# 🎬 场景构图优化指南
+﻿# 🎬 场景构图优化指南
 
 ## 📋 概述
 
@@ -493,7 +493,7 @@ game.ticker.add(() => {
 ### 分层顺序
 - ✅ bg → vignette → battlefieldFrame
 - ✅ grid → enemies → bullets
-- ✅ fx → floatingText → slot
+- ✅ fx → floatingText → spin
 
 ### 性能
 - ✅ 无全屏滤镜
@@ -524,5 +524,6 @@ game.ticker.add(() => {
 ---
 
 **🎬 场景构图优化完成！电影级视觉聚焦效果！** ✨🚀🎯
+
 
 

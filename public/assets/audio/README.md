@@ -1,4 +1,4 @@
-# 🔊 音频资源文件夹
+﻿# 🔊 音频资源文件夹
 
 此文件夹用于存放游戏音效文件。
 
@@ -60,8 +60,8 @@
 4. **BBC Sound Effects** - https://sound-effects.bbcrewind.co.uk/
 
 ### 搜索关键词
-- **spin_start**: "slot machine start", "reel spin", "mechanical start"
-- **spin_stop**: "slot stop", "reel stop", "mechanical click"
+- **spin_start**: "spin machine start", "reel spin", "mechanical start"
+- **spin_stop**: "spin stop", "reel stop", "mechanical click"
 - **win_small**: "coin collect", "ding", "small reward"
 - **win_big**: "jackpot", "big win", "fanfare"
 - **shoot**: "laser shot", "pew", "sci-fi gun"
@@ -93,4 +93,5 @@
 ---
 
 **🎮 添加音效后，刷新页面即可生效！**
+
 
