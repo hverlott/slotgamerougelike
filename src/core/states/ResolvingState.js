@@ -59,12 +59,12 @@ export class ResolvingState {
         await allWithTimeout([
           spinResult.fxDone ?? Promise.resolve(),
           bossFxDone ?? Promise.resolve()
-        ], 1000, 'ResolvingFX');
+        ], 2500, 'ResolvingFX');
       } else {
         // 🛡️ 等待中奖特效完成（带超时保护）
         await withTimeout(
           spinResult.fxDone ?? Promise.resolve(),
-          1000,
+          2000,
           'spinResult.fxDone',
           null
         );
@@ -80,7 +80,7 @@ export class ResolvingState {
       if (ctx.fxSystem?.playWinLines && ctx.slotSystem) {
         await withTimeout(
           ctx.fxSystem.playWinLines(ctx.currentPlan.spin, ctx.slotSystem),
-          1500,
+          5000,
           'FXSystem.playWinLines',
           null
         );

@@ -28,12 +28,13 @@ export class FXSystem {
     this.scanContainer = new Container();      // 扫描高光层
     this.symbolContainer = new Container();    // 符号高亮层
     
-    // 添加到游戏层
-    if (this.app.gameLayer) {
-      this.app.gameLayer.addChild(this.lineContainer);
-      this.app.gameLayer.addChild(this.glowContainer);
-      this.app.gameLayer.addChild(this.scanContainer);
-      this.app.gameLayer.addChild(this.symbolContainer);
+    // 添加到特效层 (确保在游戏对象之上)
+    const parentLayer = this.app.fxLayer || this.app.gameLayer;
+    if (parentLayer) {
+      parentLayer.addChild(this.lineContainer);
+      parentLayer.addChild(this.glowContainer);
+      parentLayer.addChild(this.scanContainer);
+      parentLayer.addChild(this.symbolContainer);
     }
     
     // 对象池
@@ -213,19 +214,13 @@ export class FXSystem {
           slotSystem.symbolHeight,
           10
         );
-        glow.fill({ color: ENERGY(), alpha: 0.2 });
+        glow.fill({ color: ENERGY(), alpha: 0.3 }); // 提高 alpha
         glow.x = localPos.x;
         glow.y = localPos.y;
         glow.alpha = 0;
         
-        glow.filters = [
-          new GlowFilter({
-            distance: 10,           // 15 → 10 (精致光晕)
-            outerStrength: 1.5,     // 2.5 → 1.5 (降低强度)
-            color: ENERGY(),
-            quality: 0.2,           // 0.3 → 0.2 (降低质量)
-          })
-        ];
+        // 🚀 性能优化：移除 Filter
+        glow.blendMode = 'add';
 
         this.symbolContainer.addChild(glow);
         this.activeSymbolGlows.push(glow);
@@ -406,38 +401,69 @@ export class FXSystem {
    * 📹 相机震动（精致微抖版）
    */
   cameraShake(intensity = 5, duration = 0.2) {
-    const target = this.app.gameLayer || this.app.stage;
+    // 优先震动 gameRoot (包含实体和特效)，否则震动 gameLayer
+    const target = this.app.gameRoot || this.app.gameLayer || this.app.stage;
     if (!target) return;
 
-    const originalX = target.x;
-    const originalY = target.y;
+    // 如果已经在震动，叠加强度
+    if (gsap.isTweening(target)) {
+      gsap.killTweensOf(target);
+      target.x = 0; // 重置
+      target.y = 0;
+    }
 
-    // 减少震动强度 50%（更微妙）
-    const reducedIntensity = intensity * 0.5;
-    const shakeX = (Math.random() - 0.5) * reducedIntensity * 2;
-    const shakeY = (Math.random() - 0.5) * reducedIntensity * 2;
+    const originalX = 0; // 假设由于容器结构，原始位置是 0,0
+    const originalY = 0;
 
-    // 更短更快的震动
-    gsap.to(target, {
-      x: originalX + shakeX,
-      y: originalY + shakeY,
-      duration: duration * 0.4,  // 更快的抖动
-      ease: 'power2.out',
-      yoyo: true,
-      repeat: 1,
+    // 震动
+    const shake = { val: 0 };
+    gsap.to(shake, {
+      val: 1,
+      duration: duration,
+      ease: "rough({ template: none.out, strength: 1, points: 20, taper: 'out', randomize: true, clamp: false })",
+      onUpdate: () => {
+        const currentIntensity = (1 - shake.val) * intensity;
+        target.x = originalX + (Math.random() - 0.5) * currentIntensity * 2;
+        target.y = originalY + (Math.random() - 0.5) * currentIntensity * 2;
+      },
       onComplete: () => {
-        gsap.to(target, {
-          x: originalX,
-          y: originalY,
-          duration: 0.03,          // 0.05 → 0.03 (更快恢复)
-          ease: 'power1.out'
-        });
+        target.x = originalX;
+        target.y = originalY;
       }
     });
   }
 
   /**
-   * ✨ 击中火花（普通）- 精致锐利版
+   * 🌍 全局强烈震屏 (Screen Shake)
+   */
+  screenShake(intensity = 15, duration = 0.4) {
+    this.cameraShake(intensity, duration);
+  }
+
+  /**
+   * 💥 巨额伤害/Boss击杀 组合特效
+   */
+  bigImpact(x, y) {
+    this.screenShake(12, 0.5);
+    this.shockwaveAOE(x, y, 150);
+    this.critSpark(x, y);
+    
+    // 额外的闪光
+    const flash = new Graphics();
+    flash.rect(0, 0, this.app.app.screen.width, this.app.app.screen.height);
+    flash.fill({ color: 0xFFFFFF, alpha: 0.3 });
+    this.app.gameLayer.addChild(flash);
+    
+    gsap.to(flash, {
+      alpha: 0,
+      duration: 0.15,
+      onComplete: () => flash.destroy()
+    });
+  }
+
+
+  /**
+   * ✨ 击中火花（普通）- 增强版
    */
   hitSpark(x, y) {
     // 🚀 限制并发特效
@@ -445,57 +471,57 @@ export class FXSystem {
       return; // 跳过新特效
     }
 
-    const sparkCount = 4; // 5 → 4 (更少粒子)
+    const sparkCount = 8; // 4 → 8 (增加粒子)
     const color = PRIMARY();
 
     for (let i = 0; i < sparkCount; i++) {
       const spark = this.getSparkGraphics();
       spark.clear();
       
-      // 小型锐利火花（细线而非圆点）
-      const length = 6 + Math.random() * 6; // 短而锐利
-      const angle = (Math.PI * 2 * i) / sparkCount + (Math.random() - 0.5) * 0.4;
+      // 锐利火花
+      const length = 8 + Math.random() * 8; // 增加长度
+      const angle = (Math.PI * 2 * i) / sparkCount + (Math.random() - 0.5) * 0.5;
       
       spark.moveTo(0, 0);
       spark.lineTo(Math.cos(angle) * length, Math.sin(angle) * length);
       spark.stroke({ 
-        width: 1.5, // 细线条
+        width: 2.5, // 增加宽度
         color, 
-        alpha: 0.85, // 1 → 0.85
+        alpha: 1.0, // 增加不透明度
         cap: 'round' 
       });
       
       spark.x = x;
       spark.y = y;
       
-      // 极微妙的光晕（减少 60%）
+      // 光晕
       spark.filters = [
         new GlowFilter({
-          distance: 3,           // 8 → 3 (-62.5%)
-          outerStrength: 0.8,    // 2 → 0.8 (-60%)
+          distance: 6,           // 3 → 6
+          outerStrength: 1.5,    // 0.8 → 1.5
           color,
-          quality: 0.1,          // 0.2 → 0.1 (更低质量)
+          quality: 0.1,
         })
       ];
 
       this.scanContainer.addChild(spark);
       this.activeSparks.push(spark);
 
-      const distance = 18 + Math.random() * 10; // 25+20 → 18+10 (更短距离)
+      const distance = 25 + Math.random() * 20; // 增加扩散距离
       const targetX = x + Math.cos(angle) * distance;
       const targetY = y + Math.sin(angle) * distance;
 
       gsap.to(spark, {
         x: targetX,
         y: targetY,
-        duration: 0.25 + Math.random() * 0.15, // 0.3+0.2 → 0.25+0.15 (更快)
+        duration: 0.3 + Math.random() * 0.2,
         ease: 'power2.out'
       });
 
       gsap.to(spark, {
         alpha: 0,
-        duration: 0.2,          // 0.25 → 0.2 (更快淡出)
-        delay: 0.08,            // 0.1 → 0.08
+        duration: 0.25,
+        delay: 0.1,
         ease: 'power1.in',
         onComplete: () => {
           const idx = this.activeSparks.indexOf(spark);
@@ -507,7 +533,7 @@ export class FXSystem {
   }
 
   /**
-   * 💥 暴击火花（加强版）- 精致锐利版
+   * 💥 暴击火花（加强版）- 增强版
    */
   critSpark(x, y) {
     // 🚀 限制并发特效
@@ -515,37 +541,37 @@ export class FXSystem {
       return;
     }
 
-    const sparkCount = 8; // 12 → 8 (更少粒子)
+    const sparkCount = 18; // 14 → 18 (更密集的暴击)
     const color = ENERGY();
 
-    // 内圈闪光（更小更锐利）
+    // 内圈闪光
     const flash = this.getRingGraphics();
     flash.clear();
-    flash.circle(0, 0, 12); // 20 → 12 (更小)
-    flash.fill({ color: 0xFFFFFF, alpha: 0.6 }); // 0.8 → 0.6
+    flash.circle(0, 0, 24); // 18 → 24 (更大)
+    flash.fill({ color: 0xFFFFFF, alpha: 0.9 }); // 0.8 → 0.9
     flash.x = x;
     flash.y = y;
     flash.filters = [
       new GlowFilter({
-        distance: 6,           // 12 → 6 (-50%)
-        outerStrength: 1.0,    // 2 → 1.0 (-50%)
+        distance: 12,          // 10 → 12
+        outerStrength: 2.0,    // 1.5 → 2.0
         color: 0xFFFFFF,
-        quality: 0.1,          // 0.2 → 0.1
+        quality: 0.1,
       })
     ];
     this.glowContainer.addChild(flash);
     this.activeRings.push(flash);
 
     gsap.to(flash.scale, {
-      x: 1.6,                  // 2 → 1.6 (更小扩散)
-      y: 1.6,
-      duration: 0.15,          // 0.2 → 0.15 (更快)
+      x: 2.0, // 1.8 → 2.0
+      y: 2.0,
+      duration: 0.25,
       ease: 'power2.out'
     });
 
     gsap.to(flash, {
       alpha: 0,
-      duration: 0.25,          // 0.3 → 0.25 (更快)
+      duration: 0.35,
       ease: 'power2.in',
       onComplete: () => {
         const idx = this.activeRings.indexOf(flash);
@@ -554,21 +580,21 @@ export class FXSystem {
       },
     });
 
-    // 外圈粒子（细线条而非圆点）
+    // 外圈粒子
     for (let i = 0; i < sparkCount; i++) {
       const spark = this.getSparkGraphics();
       spark.clear();
       
       // 锐利线条火花
-      const length = 8 + Math.random() * 8;
-      const angle = (Math.PI * 2 * i) / sparkCount + (Math.random() - 0.5) * 0.3;
+      const length = 16 + Math.random() * 16; // 12-24 → 16-32
+      const angle = (Math.PI * 2 * i) / sparkCount + (Math.random() - 0.5) * 0.4;
       
       spark.moveTo(0, 0);
       spark.lineTo(length, 0);
       spark.stroke({ 
-        width: 2,              // 细线条
+        width: 4,              // 3 → 4
         color, 
-        alpha: 0.9,
+        alpha: 1.0,
         cap: 'round' 
       });
       
@@ -576,41 +602,41 @@ export class FXSystem {
       spark.y = y;
       spark.rotation = angle;
       
-      // 微妙光晕（减少 60%）
+      // 光晕
       spark.filters = [
         new GlowFilter({
-          distance: 4,           // 10 → 4 (-60%)
-          outerStrength: 0.8,    // 2 → 0.8 (-60%)
+          distance: 8,           // 4 → 8
+          outerStrength: 1.5,    // 0.8 → 1.5
           color,
-          quality: 0.1,          // 0.2 → 0.1
+          quality: 0.1,
         })
       ];
 
       this.scanContainer.addChild(spark);
       this.activeSparks.push(spark);
 
-      const distance = 35 + Math.random() * 25; // 40+35 → 35+25
+      const distance = 50 + Math.random() * 40; // 增加距离
       const targetX = x + Math.cos(angle) * distance;
       const targetY = y + Math.sin(angle) * distance;
 
       gsap.to(spark, {
         x: targetX,
         y: targetY,
-        duration: 0.35 + Math.random() * 0.2, // 0.4+0.25 → 0.35+0.2 (更快)
+        duration: 0.4 + Math.random() * 0.25,
         ease: 'power3.out'
       });
 
       gsap.to(spark.scale, {
-        x: 1.3,                // 1.5 → 1.3
-        y: 1.3,
-        duration: 0.12,        // 0.15 → 0.12
+        x: 1.5,
+        y: 1.5,
+        duration: 0.15,
         ease: 'power2.out'
       });
 
       gsap.to(spark, {
         alpha: 0,
-        duration: 0.3,         // 0.35 → 0.3
-        delay: 0.12,           // 0.15 → 0.12
+        duration: 0.35,
+        delay: 0.15,
         ease: 'power2.in',
         onComplete: () => {
           const idx = this.activeSparks.indexOf(spark);
@@ -755,12 +781,12 @@ export class FXSystem {
     const ring = this.getRingGraphics();
     ring.x = x;
     ring.y = y;
-    ring.scale.set(0.4 * scale); // 0.3 → 0.4 (起始稍大)
-    ring.circle(0, 0, 32);       // 40 → 32 (更小半径)
+    ring.scale.set(0.4 * scale);
+    ring.circle(0, 0, 48);       // 32 → 48 (更大)
     ring.stroke({
-      width: 2,                  // 6 → 2 (细线条，与 UI 一致)
+      width: 4,                  // 2 → 4 (加粗)
       color: ENERGY(),
-      alpha: 0.7,                // 0.9 → 0.7 (-22%)
+      alpha: 1.0,                // 0.7 → 1.0 (更亮)
     });
 
     this.glowContainer.addChild(ring);
@@ -852,17 +878,17 @@ export class FXSystem {
     slashGraphic.y = y;
     slashGraphic.rotation = (Math.random() - 0.5) * 0.6;
 
-    // 根据强度调整参数（更少线条，更细）
+    // 根据强度调整参数（更明显的斩击）
     const isStrong = strength > 1.5;
-    const count = isStrong ? 6 : 4;       // 9/6 → 6/4 (更少线条)
-    const lenBase = isStrong ? 48 : 32;   // 56/40 → 48/32 (更短)
-    const lineWidth = isStrong ? 2 : 1.5; // 4/3 → 2/1.5 (更细，与 UI 一致)
+    const count = isStrong ? 6 : 4;
+    const lenBase = isStrong ? 64 : 48;   // 48/32 → 64/48 (更长)
+    const lineWidth = isStrong ? 4.0 : 2.5; // 2/1.5 → 4.0/2.5 (加粗)
     const color = isStrong ? ENERGY() : 0xfff07a;
 
     // 绘制斩击线条（更锐利）
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const length = lenBase + Math.random() * (isStrong ? 24 : 16); // 32/22 → 24/16
+      const length = lenBase + Math.random() * (isStrong ? 32 : 24);
 
       // 外层线条
       slashGraphic.moveTo(0, 0);
@@ -870,20 +896,20 @@ export class FXSystem {
       slashGraphic.stroke({ 
         width: lineWidth, 
         color, 
-        alpha: 0.85,         // 0.95 → 0.85 (更微妙)
+        alpha: 1.0,         // 0.85 → 1.0 (最亮)
         cap: 'round' 
       });
 
       // 内层高光（更细更短）
       slashGraphic.moveTo(0, 0);
       slashGraphic.lineTo(
-        Math.cos(angle) * (length * 0.6), // 0.7 → 0.6
-        Math.sin(angle) * (length * 0.6)
+        Math.cos(angle) * (length * 0.7), 
+        Math.sin(angle) * (length * 0.7)
       );
       slashGraphic.stroke({ 
-        width: Math.max(0.5, lineWidth - 1), // 更细的内层
+        width: Math.max(1.0, lineWidth - 1.5), 
         color: 0xffffff, 
-        alpha: 0.75,         // 0.9 → 0.75
+        alpha: 0.9,         // 0.75 → 0.9
         cap: 'round' 
       });
     }

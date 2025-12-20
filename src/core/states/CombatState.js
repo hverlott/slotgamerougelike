@@ -31,6 +31,15 @@ export class CombatState {
         for (let i = 0; i < events.length; i++) {
           const event = events[i];
           
+          // 🎯 注入发射源坐标 (从 SlotSystem 获取中心点)
+          if (ctx.slotSystem?.getPayoutOriginGlobal) {
+            const origin = ctx.slotSystem.getPayoutOriginGlobal();
+            if (origin && Number.isFinite(origin.x) && Number.isFinite(origin.y)) {
+              event.startX = origin.x;
+              event.startY = origin.y;
+            }
+          }
+
           ctx.machine.lastAwaitLabel = `playCombatEvent[${i}/${events.length}]`;
           
           // 🛡️ 每个战斗事件添加超时保护

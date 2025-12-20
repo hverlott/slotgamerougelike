@@ -59,11 +59,23 @@ const UIThemes = {
     danger: '#FF3D81',
     win: '#E0FFE7',
   },
+  genshin: {
+    name: 'Teyvat Gold',
+    primary: '#D3BC8E', // 提瓦特金
+    secondary: '#4A5060', // 深蓝灰
+    accent: '#00F0FF', // 原石蓝
+    background: '#F0F2F5', // 浅灰白底
+    surface: '#FFFFFF', // 纯白面板
+    text: '#4A5060', // 深灰字
+    grid: '#D3BC8E',
+    danger: '#FF5C5C',
+    win: '#FFC107',
+  },
 };
 
 class ThemeManager {
   constructor() {
-    this.currentTheme = 'cyberA';
+    this.currentTheme = 'genshin'; // 默认改为原神风
     this.subscribers = [];
   }
 

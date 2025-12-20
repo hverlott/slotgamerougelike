@@ -40,7 +40,7 @@ export class SpinningState {
         slotSystem.payoutScale = Math.max(0.35, 1 - (level - 1) * 0.06);
       }
       
-      const { reels } = ctx.resultBank?.getResult?.(level) ?? { reels: [] };
+      const { grid: reels } = ctx.resultBank?.getResult?.(level) ?? { grid: [] };
       
       // 🔍 调试跟踪
       if (window.__TRACE__) {

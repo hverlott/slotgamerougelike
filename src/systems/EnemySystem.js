@@ -171,21 +171,35 @@ export class EnemySystem {
       this.onDamageDealt(amount);
     }
 
-    // 闪白
-    const flash = new ColorMatrixFilter();
-    flash.brightness(2, false);
-    const baseFilters = zombie.filters?.filter((f) => !(f instanceof ColorMatrixFilter)) || [];
-    zombie.filters = [...baseFilters, flash];
-    gsap.delayedCall(0.1, () => {
-      if (!zombie || zombie.destroyed) return;
-      zombie.filters = baseFilters;
-    });
+    // ⚡ 强力受击反馈：Tint 闪白/红
+    const originalTint = zombie.meta?.color ?? 0xffffff;
+    const body = zombie.bodyShape ?? zombie;
+    
+    // 性能优化：不再创建 ColorMatrixFilter，直接用 Tint 闪白
+    if (body) {
+      // 0xFFFFFF (纯白) 在默认 shader 下可能只是原色
+      // 如果 body 是 Sprite，tint 会与纹理相乘。
+      // 要实现“闪白”，通常需要 shader 或者 additive blend。
+      // 这里使用简单的 tint 变红反馈，性能最高
+      body.tint = 0xff0000; 
+      
+      // 0.08秒后恢复
+      gsap.delayedCall(0.08, () => {
+        if (!zombie || zombie.destroyed) return;
+        body.tint = originalTint;
+      });
+    }
 
-    // 抖动/回弹
+    // 💥 物理反馈：强力抖动
+    const scaleX = body.scale?.x ?? 1;
+    const scaleY = body.scale?.y ?? 1;
+    
+    // 避免重复创建 tween
+    gsap.killTweensOf(body.scale);
     gsap.fromTo(
-      zombie.scale,
-      { x: 1.5, y: 1.5 },
-      { x: 1, y: 1, duration: 0.1, ease: 'bounce.out', overwrite: true },
+      body.scale,
+      { x: scaleX * 0.8, y: scaleY * 1.2 }, // 被打扁
+      { x: scaleX, y: scaleY, duration: 0.25, ease: 'elastic.out(1, 0.3)' }
     );
 
     this.updateHpBar(zombie);
@@ -217,6 +231,24 @@ export class EnemySystem {
 
   getAliveCount() {
     return this.zombies.filter((z) => z && !z.destroyed).length;
+  }
+
+  // 🎯 目标选择逻辑：优先攻击最前方的僵尸 (FIFO)
+  pickTarget() {
+    const alive = this.zombies.filter((z) => z && !z.destroyed);
+    if (alive.length === 0) return null;
+
+    // 排序优先级：
+    // 1. Row (行号大者优先，即最下方)
+    // 2. Y 坐标 (Y 大者优先)
+    // 3. Col (列号小者优先，从左到右)
+    alive.sort((a, b) => {
+      if (Math.abs(b.row - a.row) > 0.1) return b.row - a.row; // 行优先
+      if (Math.abs(b.y - a.y) > 10) return b.y - a.y; // Y坐标优先
+      return a.col - b.col; // 同行同高度，从左到右
+    });
+
+    return alive[0];
   }
 
   updateHpBar(enemy) {

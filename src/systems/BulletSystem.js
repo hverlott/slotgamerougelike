@@ -70,6 +70,7 @@ export class BulletSystem {
     this.container = new Container();
     this.bullets = [];
     this.speed = 26;
+    this.rotationSpeed = 0.15; // 🔄 旋转速度控制
     this.damagePerHit = options.damagePerHit ?? 10;
     this.onHit = options.onHit ?? null;
     this.floatingTextSystem = options.floatingTextSystem ?? null;
@@ -96,6 +97,11 @@ export class BulletSystem {
     } else {
       console.warn('[BulletSystem] Renderer not available, textures will be created on first use');
     }
+
+    // 🛠️ 调试模式
+    this.debugMode = false;
+    this.debugContainer = new Container();
+    this.container.addChild(this.debugContainer);
 
     this.app.gameLayer.addChild(this.container);
     this.update = this.update.bind(this);
@@ -225,6 +231,123 @@ export class BulletSystem {
     }
   }
 
+  // ============ 调试与校验 ============
+  
+  setDebug(enabled) {
+    this.debugMode = enabled;
+    if (!enabled) this.debugContainer.removeChildren();
+    console.log(`[BulletSystem] Debug mode ${enabled ? 'ENABLED' : 'DISABLED'}`);
+  }
+
+  validateSpawnPoint(x, y) {
+    const { width, height } = this.app.app.screen;
+    // 允许一定的缓冲区 (例如屏幕外 100px)
+    const padding = 100;
+    if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) {
+      console.warn(`[BulletSystem] Invalid spawn coordinates: (${x}, ${y})`);
+      return false;
+    }
+    if (x < -padding || x > width + padding || y < -padding || y > height + padding) {
+      console.warn(`[BulletSystem] Spawn point out of bounds: (${x?.toFixed(1)}, ${y?.toFixed(1)})`);
+      // 仍然返回 true，因为有时候确实需要从屏幕外发射（比如支援打击），但打印警告以便排查
+      return true; 
+    }
+    return true;
+  }
+
+  drawDebugMarker(x, y) {
+    if (!this.debugMode) return;
+    
+    const marker = new Graphics();
+    // 十字准星
+    marker.moveTo(-10, 0).lineTo(10, 0);
+    marker.moveTo(0, -10).lineTo(0, 10);
+    marker.stroke({ width: 2, color: 0xff0000, alpha: 0.8 });
+    // 圆圈
+    marker.circle(0, 0, 15);
+    marker.stroke({ width: 1, color: 0xff0000, alpha: 0.5 });
+    
+    marker.x = x;
+    marker.y = y;
+    this.debugContainer.addChild(marker);
+    
+    // 自动淡出
+    gsap.to(marker, {
+      alpha: 0,
+      duration: 1.0,
+      delay: 0.5,
+      onComplete: () => marker.destroy()
+    });
+  }
+
+  // 🎯 绘制锁定准星
+  drawReticle(target) {
+    if (!target || target.destroyed) return;
+    
+    // 如果已经有准星且目标相同，复用（或者简单的闪烁一下）
+    if (this.currentReticle && this.currentReticle.target === target) {
+      this.currentReticle.alpha = 1;
+      return;
+    }
+
+    // 移除旧准星
+    if (this.currentReticle) {
+      this.currentReticle.destroy();
+      this.currentReticle = null;
+    }
+
+    const size = 50;
+    const reticle = new Container();
+    
+    // 旋转的括号 []
+    const brackets = new Graphics();
+    const len = 15;
+    const thick = 3;
+    const color = 0xFF4444; // 红色锁定
+
+    // 左上
+    brackets.moveTo(-size/2, -size/2 + len).lineTo(-size/2, -size/2).lineTo(-size/2 + len, -size/2);
+    // 右上
+    brackets.moveTo(size/2 - len, -size/2).lineTo(size/2, -size/2).lineTo(size/2, -size/2 + len);
+    // 右下
+    brackets.moveTo(size/2, size/2 - len).lineTo(size/2, size/2).lineTo(size/2 - len, size/2);
+    // 左下
+    brackets.moveTo(-size/2 + len, size/2).lineTo(-size/2, size/2).lineTo(-size/2, size/2 - len);
+    
+    brackets.stroke({ width: thick, color, alpha: 0.8 });
+    reticle.addChild(brackets);
+
+    // 中心点
+    const center = new Graphics();
+    center.circle(0, 0, 4);
+    center.fill({ color, alpha: 0.9 });
+    reticle.addChild(center);
+
+    this.container.addChild(reticle);
+    this.currentReticle = reticle;
+    this.currentReticle.target = target;
+
+    // 锁定动画
+    gsap.to(brackets, { rotation: Math.PI / 2, duration: 0.5, ease: 'back.out' });
+    gsap.fromTo(reticle.scale, { x: 2, y: 2 }, { x: 1, y: 1, duration: 0.3, ease: 'power2.out' });
+
+    // 每一帧跟随目标
+    const follow = () => {
+      if (!target || target.destroyed || this.currentReticle !== reticle) {
+        reticle.destroy();
+        if (this.currentReticle === reticle) this.currentReticle = null;
+        this.app.app.ticker.remove(follow);
+        return;
+      }
+      
+      const gpos = target.getGlobalPosition ? target.getGlobalPosition() : null;
+      const pos = gpos ? this.container.toLocal(gpos) : target;
+      reticle.x = pos.x;
+      reticle.y = pos.y;
+    };
+    this.app.app.ticker.add(follow);
+  }
+
   // ============ 统一战斗事件入口 ============
   async playCombatEvent(ev, modifiers = null) {
     this.currentModifiers = modifiers || {
@@ -261,7 +384,7 @@ export class BulletSystem {
     const mods = this.currentModifiers || {};
     const { count = 1, dmg = this.damagePerHit, bulletType = 1, startX, startY } = ev;
     
-    this.audioSystem?.play('shoot', { volume: 0.6 });
+    this.audioSystem?.play('shoot', { volume: 0.6, pos: { x: (startX / this.app.app.screen.width) * 2 - 1, y: 0, z: 0 } });
     
     const totalCount = count + (mods.extraProjectiles || 0);
     
@@ -317,8 +440,20 @@ export class BulletSystem {
 
   fireBulletTo(target, { dmg, bulletType = 1, startX, startY }) {
     return new Promise((resolve) => {
-      const sx = startX ?? 0;
-      const sy = startY ?? this.app.app.screen.height / 2;
+      let sx = startX ?? 0;
+      let sy = startY ?? this.app.app.screen.height / 2;
+
+      // 🛠️ 坐标校验与修正
+      if (!this.validateSpawnPoint(sx, sy)) {
+        // 如果坐标无效，默认回退到屏幕中心下方
+        sx = this.app.app.screen.width / 2;
+        sy = this.app.app.screen.height * 0.8;
+      }
+
+      // 🛠️ 调试可视化
+      if (this.debugMode) {
+        this.drawDebugMarker(sx, sy);
+      }
 
       const sprite =
         bulletType === 4 ? this.createType4() : bulletType === 2 ? this.createType2() : this.createType1();
@@ -362,14 +497,9 @@ export class BulletSystem {
     const body = new Graphics();
     body.roundRect(-30, -3, 60, 6, 3);
     body.fill({ color: PRIMARY(), alpha: 1 });
-    const glow = new GlowFilter({
-      distance: 8,
-      outerStrength: 1.5,
-      color: PRIMARY(),
-      quality: 0.2,
-    });
-    holder.filters = [glow];
+    // 🚀 性能优化：移除每帧 Filter，改用 additive 混合模式
     holder.addChild(body);
+    holder.blendMode = 'add'; 
     return holder;
   }
 
@@ -381,14 +511,9 @@ export class BulletSystem {
     const trail = new Graphics();
     trail.circle(-18, 0, 6);
     trail.fill({ color: ENERGY(), alpha: 0.5 });
-    const glow = new GlowFilter({
-      distance: 10,
-      outerStrength: 2,
-      color: ENERGY(),
-      quality: 0.2,
-    });
-    holder.filters = [glow];
+    // 🚀 性能优化：移除 Filter
     holder.addChild(trail, orb);
+    holder.blendMode = 'add';
     return holder;
   }
 
@@ -402,14 +527,9 @@ export class BulletSystem {
     const flame = new Graphics();
     flame.circle(-16, 0, 5);
     flame.fill({ color: 0xff6633, alpha: 0.7 });
-    const glow = new GlowFilter({
-      distance: 12,
-      outerStrength: 2.6,
-      color: ENERGY(),
-      quality: 0.12,
-    });
-    holder.filters = [glow];
+    // 🚀 性能优化：移除 Filter
     holder.addChild(flame, body);
+    holder.blendMode = 'add';
     gsap.to(flame, { alpha: 0.2, duration: 0.08, yoyo: true, repeat: -1, ease: 'steps(1)' });
     return holder;
   }
@@ -503,6 +623,29 @@ export class BulletSystem {
       const dx = targetPos.x - sprite.x;
       const dy = targetPos.y - sprite.y;
       const dist = Math.hypot(dx, dy) || 1;
+      
+      // 🔄 自动旋转修复：重新校准角度并平滑过渡
+      const targetAngle = Math.atan2(dy, dx);
+      
+      // 异常检测：如果角度无效，重置为 0
+      if (!Number.isFinite(targetAngle)) {
+        sprite.rotation = 0;
+      } else {
+        // 平滑旋转
+        let diff = targetAngle - sprite.rotation;
+        // 归一化到 -PI ~ PI
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        
+        // 应用旋转速度
+        const rotSpeed = this.rotationSpeed || 0.15;
+        if (Math.abs(diff) > 0.01) {
+           sprite.rotation += diff * rotSpeed;
+        } else {
+           sprite.rotation = targetAngle;
+        }
+      }
+
       const vx = (dx / dist) * speed;
       const vy = (dy / dist) * speed;
 
@@ -519,11 +662,13 @@ export class BulletSystem {
         const mods = this.currentModifiers || {};
         
         const baseCritChance = type === 3 ? 0.3 : 0.1;
-        const finalCritChance = baseCritChance + (mods.critChance || 0);
+        // ✅ 修复：计入全局暴击率（升级系统）
+        const finalCritChance = baseCritChance + (this.critChance || 0) + (mods.critChance || 0);
         const isCrit = Math.random() < finalCritChance;
         
         const baseDmg = b.dmg ?? (this.damagePerHit * (type === 2 ? 1.5 : type === 4 ? 2.2 : 1));
-        const damage = (isCrit ? 2 : 1) * baseDmg;
+        const critMul = this.critMultiplier || 2.0;
+        const damage = (isCrit ? critMul : 1) * baseDmg;
         
         const impactX = targetPos?.x ?? sprite.x;
         const impactY = targetPos?.y ?? sprite.y;
@@ -539,29 +684,53 @@ export class BulletSystem {
         
         this.onHit?.(damage, { isCrit, target, pos: { x: impactX, y: impactY } });
 
-        // 🚀 性能优化：所有视觉效果由 FXSystem 统一处理
-        // 斩击效果
-        const slashStrength = (type === 4 || isCrit) ? 2.0 : 1.0;
-        this.fxSystem?.slash?.(impactX, impactY, slashStrength);
+        // 🎯 击中特效逻辑重构 (区分普通/暴击/特殊)
+        const isSpecial = type === 4; // 特殊子弹
+        const isExplosive = type === 2; // 爆炸子弹
 
-        // 击中火花
-        if (isCrit) {
-          this.fxSystem?.critSpark?.(impactX, impactY);
+        if (isCrit || isSpecial) {
+          // 💥 暴击/特殊：斩击 + 暴击火花
+          const slashStrength = isSpecial ? 2.5 : 2.0;
+          if (this.fxSystem?.slash) {
+            this.fxSystem.slash(impactX, impactY, slashStrength);
+          }
+          
+          if (damage > this.damagePerHit * 3) {
+             this.fxSystem?.bigImpact?.(impactX, impactY);
+          } else {
+             this.fxSystem?.critSpark?.(impactX, impactY);
+          }
+        } else if (isExplosive) {
+          // 💣 爆炸子弹：爆炸圈 + 火花
+          this.fxSystem?.explosion?.(impactX, impactY, 1.2);
         } else {
+          // ✨ 普通击中：只有火花 (去除多余的 slash)
           this.fxSystem?.hitSpark?.(impactX, impactY);
         }
 
-        // 音效
+        // 音效 (3D Spatial)
+        const screenW = this.app.app.screen.width;
+        const screenH = this.app.app.screen.height;
+        const panX = (impactX / screenW) * 2 - 1; // -1 ~ 1
+        const pos = { x: panX, y: 0, z: 0 }; // Simplified Z
+
         if (type === 2 || type === 4) {
-          this.audioSystem?.play('explosion', { volume: type === 4 ? 1.0 : 0.7 });
+          this.audioSystem?.play('explosion', { volume: type === 4 ? 1.0 : 0.7, pos });
         } else {
-          this.audioSystem?.play('hit', { volume: isCrit ? 0.8 : 0.5 });
+          // 随机化音调，避免单调
+          const rate = 0.9 + Math.random() * 0.2;
+          this.audioSystem?.play('hit', { volume: isCrit ? 0.8 : 0.5, rate, pos });
         }
 
         // 相机震动
-        const shakeIntensity = type === 4 ? 6 : (isCrit ? 4 : 2);
-        const shakeDuration = type === 4 ? 0.25 : (isCrit ? 0.2 : 0.15);
-        this.fxSystem?.cameraShake?.(shakeIntensity, shakeDuration);
+        const shakeIntensity = type === 4 ? 15 : (isCrit ? 8 : 2); // 增加强度
+        const shakeDuration = type === 4 ? 0.4 : (isCrit ? 0.3 : 0.15);
+        
+        if (type === 4 || (isCrit && damage > this.damagePerHit * 2)) {
+             this.fxSystem?.screenShake?.(shakeIntensity, shakeDuration);
+        } else {
+             this.fxSystem?.cameraShake?.(shakeIntensity, shakeDuration);
+        }
 
         const aoeScale = mods.aoeScale || 1.0;
         
@@ -581,8 +750,13 @@ export class BulletSystem {
           });
         }
         if (type === 4) {
-          // 爆炸特效由 FXSystem 处理
-          this.fxSystem?.explosion?.(impactX, impactY, aoeScale);
+          // 爆炸特效
+          if (this.fxSystem?.explosion) {
+             this.fxSystem.explosion(impactX, impactY, aoeScale);
+          } else {
+             this.spawnExplosion(impactX, impactY);
+          }
+          
           const innerRadius = 60 * aoeScale;
           const outerRadius = 110 * aoeScale;
           
@@ -819,9 +993,19 @@ export class BulletSystem {
         false
       );
 
-      // 连锁闪电和斩击效果由 FXSystem 处理
-      this.fxSystem?.chainLightning?.(currentPos.x, currentPos.y, nextTarget.pos.x, nextTarget.pos.y);
-      this.fxSystem?.slash?.(nextTarget.pos.x, nextTarget.pos.y, 0.8);
+      // 连锁闪电和斩击效果
+      if (this.fxSystem?.chainLightning) {
+        this.fxSystem.chainLightning(currentPos.x, currentPos.y, nextTarget.pos.x, nextTarget.pos.y);
+      } else {
+        this.spawnChainLightning(currentPos.x, currentPos.y, nextTarget.pos.x, nextTarget.pos.y);
+      }
+      
+      if (this.fxSystem?.slash) {
+        this.fxSystem.slash(nextTarget.pos.x, nextTarget.pos.y, 0.8);
+      } else {
+        this.spawnSlashHit(nextTarget.pos.x, nextTarget.pos.y, { strong: false });
+      }
+
       this.fxSystem?.hitSpark?.(nextTarget.pos.x, nextTarget.pos.y);
 
       chainedTargets.push(nextTarget.enemy);

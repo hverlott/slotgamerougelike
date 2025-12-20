@@ -614,3 +614,4 @@ console.log('GameLayer children:', game.gameLayer.children.length);
 
 **🎨 增强场景构图完成！电影级视觉层次 + 战场聚焦 + 性能优化！** ✨🚀💎
 
+

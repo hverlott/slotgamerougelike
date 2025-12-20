@@ -6,8 +6,14 @@ import { themeManager } from '../systems/ThemeManager.js';
 export class GameApp {
   constructor() {
     this.app = new Application();
-    this.gameLayer = new Container();
+    this.gameRoot = new Container(); // 🚀 新增：游戏根容器 (用于整体震动)
+    this.gameLayer = new Container(); // 实体层
+    this.fxLayer = new Container();   // 特效层
     this.uiLayer = new Container();
+    
+    // 组装游戏场景结构
+    this.gameRoot.addChild(this.gameLayer);
+    this.gameRoot.addChild(this.fxLayer); // 特效在实体之上
     this._shakeTween = null;
     this._level = 1;
     this._glowFilter = null;
@@ -39,6 +45,7 @@ export class GameApp {
 
     this.app.stage.addChild(this.bgLayer);
     this.app.stage.addChild(this.gameLayer);
+    this.app.stage.addChild(this.fxLayer); // 🚀 确保特效层在游戏层之上
     this.app.stage.addChild(this.uiLayer);
 
     themeManager.subscribe((theme) => this.updateTheme(theme));
@@ -58,13 +65,15 @@ export class GameApp {
 
     const g = new Graphics();
     const size = 64;
-    g.lineStyle({ width: 1, color: 0x0f172a, alpha: 0.6 });
+    // g.lineStyle({ width: 1, color: 0x0f172a, alpha: 0.6 }); // ❌ Pixi v8 Deprecated
     g.rect(0, 0, size, size);
+    g.stroke({ width: 1, color: 0x0f172a, alpha: 0.6 }); // ✅ Pixi v8
     g.moveTo(0, size / 2);
     g.lineTo(size, size / 2);
     g.moveTo(size / 2, 0);
     g.lineTo(size / 2, size);
     g.alpha = 0.12;
+    g.stroke({ width: 1, color: 0x0f172a, alpha: 0.6 }); // ✅ Pixi v8
     const tex = this.app.renderer.generateTexture(g);
     g.destroy(true);
     this.bgTile = new TilingSprite({

@@ -265,6 +265,7 @@ export class AudioSystem {
    * @param {number} options.rate - 播放速率（0.5-2.0）
    * @param {boolean} options.loop - 是否循环
    * @param {boolean} options.force - 是否强制播放（忽略复音限制）
+   * @param {object} options.pos - 3D 空间位置 {x, y, z}
    * @returns {number|null} - 音效实例 ID
    */
   play(name, options = {}) {
@@ -314,6 +315,27 @@ export class AudioSystem {
         howl.loop(options.loop, id);
       }
       
+      // 3D 空间音效
+      if (options.pos) {
+        // 归一化位置：假设屏幕中心是 (0,0)，范围 -1 到 1
+        // x: -1 (左) ~ 1 (右)
+        // y: -1 (上) ~ 1 (下)
+        // z: -1 (后) ~ 1 (前)
+        const { x = 0, y = 0, z = 0 } = options.pos;
+        howl.pos(x, y, z, id);
+        
+        // 简单的衰减模型
+        howl.pannerAttr({
+          panningModel: 'HRTF',
+          refDistance: 0.8,
+          rolloffFactor: 1.5,
+          distanceModel: 'exponential'
+        }, id);
+      } else {
+         // 重置为 2D (如果之前被设置为 3D)
+         howl.pos(0, 0, 0, id);
+      }
+      
       // 追踪活跃实例
       this.activeInstances.set(name, currentCount + 1);
       
@@ -327,6 +349,18 @@ export class AudioSystem {
     } catch (error) {
       // 捕获任何播放错误（静默处理）
       return null;
+    }
+  }
+
+  /**
+   * 🎧 更新听众位置 (用于 3D 音效)
+   * @param {number} x 
+   * @param {number} y 
+   * @param {number} z 
+   */
+  updateListener(x, y, z) {
+    if (Howler.pos) {
+        Howler.pos(x, y, z);
     }
   }
 

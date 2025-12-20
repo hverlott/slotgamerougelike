@@ -85,8 +85,7 @@ export class JackpotSystem extends Container {
         fontSize: 13,
         fontWeight: '800',
         fill: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 4,
+        stroke: { width: 4, color: '#000000' }, // ✅ PixiJS v8 语法修复
       },
     });
     this.hpText.anchor?.set?.(0.5);
@@ -124,9 +123,11 @@ export class JackpotSystem extends Container {
     this.aura.circle(0, 0, 92);
     this.aura.stroke({ width: 1, color: win, alpha: 0.25 });
 
-    this.bossLayer.filters = [
-      new GlowFilter({ distance: 10, outerStrength: 2, color: primary, quality: 0.1 }),
-    ];
+    // 🚀 性能优化：移除 Boss 常驻 GlowFilter
+    // this.bossLayer.filters = [ ... ];
+    this.bossLayer.filters = null;
+    // 使用 blendMode 模拟发光
+    this.aura.blendMode = 'add';
 
     this.title.style.fill = theme.text;
     this._hpColor = win;
@@ -243,8 +244,7 @@ export class JackpotSystem extends Container {
         fontSize: 16,
         fontWeight: '900',
         fill: themeManager.getColor('danger') ?? '#FF003C',
-        stroke: '#000000',
-        strokeThickness: 4,
+        stroke: { width: 4, color: '#000000' },
       },
     });
     dmgText.anchor?.set?.(0.5);
@@ -303,8 +303,7 @@ export class JackpotSystem extends Container {
         fontSize: 22,
         fontWeight: '900',
         fill: themeManager.getColor('win') ?? '#FFE600',
-        stroke: '#000000',
-        strokeThickness: 4,
+        stroke: { width: 4, color: '#000000' },
         align: 'center',
       },
     });

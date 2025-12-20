@@ -10,7 +10,8 @@ export class RTPManager {
     this.totalBet = 0;
     this.totalWin = 0;
     this.totalSpins = 0;
-    this.hitCount = 0;
+    this.hitCount = 0; // Number of winning spins
+    this.totalHits = 0; // Number of successful bullet hits
     this.combo = 0;
     this.roundHistory = [];
     this.pendingRound = null;
@@ -45,6 +46,11 @@ export class RTPManager {
 
   recordBet(bet) {
     this.startRound(bet);
+  }
+
+  recordHit(damage) {
+    this.totalHits++;
+    // Optional: track damage here if needed, but usually tracked in EnemySystem
   }
 
   createPanel() {

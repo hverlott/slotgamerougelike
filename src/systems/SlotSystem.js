@@ -252,6 +252,12 @@ export class SlotSystem extends Container {
         });
       },
     });
+
+    // ⚡️ 额外的微震动反馈
+    gsap.fromTo(this.consolePanel.scale, 
+        { x: 1.0, y: 1.0 },
+        { x: 1.005, y: 1.005, duration: 0.05, yoyo: true, repeat: 3 }
+    );
   }
 
   createMask() {
@@ -340,16 +346,15 @@ export class SlotSystem extends Container {
     // 常驻高亮：High/Wild
     if (value === 4 || value === 3) {
       const color = value === 4 ? ACCENT() : ENERGY();
-      icon.filters = [
-        new GlowFilter({
-          distance: 10,
-          outerStrength: 2.4,
-          color,
-          quality: 0.12,
-        }),
-      ];
+      // 🚀 性能优化：移除常驻 Filter，改用 blendMode
+      // icon.filters = [ ... ]; 
+      // 注意：直接修改 blendMode 可能会影响整个 Sprite 的渲染，这里仅对特殊符号启用
+      icon.blendMode = 'add'; 
+      icon.alpha = 1.2; // 稍微增加不透明度以模拟发光
     } else {
       icon.filters = null;
+      icon.blendMode = 'normal';
+      icon.alpha = 1;
     }
   }
 
@@ -552,14 +557,7 @@ export class SlotSystem extends Container {
     // 按照 y 坐标排序，找到当前显示的图标顺序
     const sorted = [...reel.symbols].sort((a, b) => a.y - b.y);
     
-    // 目标位置：-110, 0, 110, 220, 330
-    const targets = [
-      -this.symbolHeight,
-      0,
-      this.symbolHeight,
-      2 * this.symbolHeight,
-      3 * this.symbolHeight,
-    ];
+    const targets = sorted.map((_, i) => (i - 1) * this.symbolHeight);
 
     let done = 0;
     const finishOne = () => {
@@ -633,6 +631,7 @@ export class SlotSystem extends Container {
         index: idx,
         coords,
         symbol: target,
+        symbols: symbols, // ✅ 修复：传递整行符号数据给 TurnPlanner
         multiplier,
         amount,
       });
@@ -653,33 +652,51 @@ export class SlotSystem extends Container {
     this.lineLayer.clear();
     this.lineLayer.alpha = 1;
     this.lineLayer.visible = true;
-    // 使用 GlowFilter 时注意不要和 Mask 冲突，这里 fxLayer 没有 Mask 或者是独立的
-    this.lineLayer.filters = [
-      new GlowFilter({ distance: 10, outerStrength: 2, color: ENERGY(), quality: 0.1 }),
-    ];
+    
+    // 🚀 性能优化：使用 blendMode 代替 GlowFilter
+    this.lineLayer.blendMode = 'add';
+    this.lineLayer.filters = null;
 
     winLines.forEach((line) => {
       const points = line.coords.map((coord) => this.getSymbolCenter(coord.c, coord.r));
+      
+      // 1. 绘制底层辉光（宽线条，低透明度）
       this.lineLayer.moveTo(points[0].x, points[0].y);
       for (let i = 1; i < points.length; i += 1) {
         this.lineLayer.lineTo(points[i].x, points[i].y);
       }
       this.lineLayer.stroke({
-        width: 6,
-        color: 0xffffff,
-        alpha: 1,
+        width: 12,
+        color: ENERGY(), // 使用赢分颜色 (通常是金色/黄色)
+        alpha: 0.3,
+        cap: 'round',
+        join: 'round'
+      });
+
+      // 2. 绘制核心高亮线（细线条，高亮度）
+      this.lineLayer.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i += 1) {
+        this.lineLayer.lineTo(points[i].x, points[i].y);
+      }
+      this.lineLayer.stroke({
+        width: 4,
+        color: 0xffffff, // 核心白色
+        alpha: 1.0,
         cap: 'round',
         join: 'round'
       });
     });
 
-    const flicker = gsap.to(this.lineLayer, {
-      alpha: 0.2,
-      duration: 0.1,
-      yoyo: true,
-      repeat: 5,
-      ease: 'steps(1)',
-    });
+    const flicker = gsap.fromTo(this.lineLayer, 
+      { alpha: 0.6 },
+      {
+        alpha: 1,
+        duration: 0.15,
+        yoyo: true,
+        repeat: 5,
+        ease: 'sine.inOut',
+      }
+    );
     this.activeTweens.push(flicker);
   }
 
@@ -703,25 +720,25 @@ export class SlotSystem extends Container {
         if (!symbol) return;
         winningSymbols.push(symbol);
         
-        // 闪烁特效
-        symbol.icon.filters = [
-          new GlowFilter({
-            distance: 8,
-            outerStrength: 2.5,
-            color: ACCENT(),
-            quality: 0.1,
-          }),
-        ];
+        // 💥 背后爆发特效
+        const center = this.getSymbolCenter(c, r);
+        this.spawnBurst(center.x, center.y, ACCENT());
+
+        // 闪烁特效 - 性能优化：移除 GlowFilter，仅使用缩放和叠加
+        // symbol.icon.filters = [ ... ];
+        symbol.icon.blendMode = 'add'; // 临时开启发光叠加
+        
         // 重要：不要 tween DisplayObject.scale（没有 PixiPlugin 会把 scale 覆盖成 number，导致 UI 变形）
         symbol.alpha = 1;
         const tween = gsap.to(symbol.scale, {
-          x: 1.2,
-          y: 1.2,
+          x: 1.3,
+          y: 1.3,
           duration: 0.2,
           yoyo: true,
           repeat: 3,
           onComplete: () => {
             symbol.scale.set(1);
+            symbol.icon.blendMode = 'normal'; // 恢复正常
             // 恢复常驻纹理/高亮（High/Wild）
             this.drawSymbol(symbol.icon, symbol.value);
           },
@@ -793,6 +810,36 @@ export class SlotSystem extends Container {
       local.y = this.winText.y;
     }
     return this.toGlobal(local);
+  }
+
+  spawnBurst(x, y, color) {
+    const particleCount = 12;
+    for (let i = 0; i < particleCount; i++) {
+      if (this.activeParticles.length >= MAX_PARTICLES) break;
+
+      const particle = this.particlePool.pop() || new Graphics();
+      particle.clear();
+      particle.circle(0, 0, 3 + Math.random() * 3);
+      particle.fill({ color, alpha: 1 });
+      
+      particle.x = x;
+      particle.y = y;
+      particle.alpha = 1;
+      this.fxLayer.addChild(particle);
+      this.activeParticles.push(particle);
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 5 + Math.random() * 8;
+      
+      gsap.to(particle, {
+        x: x + Math.cos(angle) * (40 + Math.random() * 30),
+        y: y + Math.sin(angle) * (40 + Math.random() * 30),
+        alpha: 0,
+        duration: 0.4 + Math.random() * 0.3,
+        ease: 'power2.out',
+        onComplete: () => this.recycleParticle(particle)
+      });
+    }
   }
 
   spawnFireworks() {

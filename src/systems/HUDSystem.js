@@ -246,8 +246,24 @@ export class HUDSystem extends Container {
   }
 
   setStats({ coins = 0, level = 1, kills = 0, target = 100, zombieAlive = 0, bossHPpct = null } = {}) {
-    if (this.txtCoins?.value) this.txtCoins.value.text = `${Number(coins || 0).toFixed(0)}`;
-    if (this.txtKills?.value) this.txtKills.value.text = `${Math.max(1, level)} ${kills}/${target}`;
+    if (this.txtCoins?.value) {
+      const newCoins = `${Number(coins || 0).toFixed(0)}`;
+      if (this.txtCoins.value.text !== newCoins) {
+        this.txtCoins.value.text = newCoins;
+        // 💰 金币跳动
+        gsap.fromTo(this.txtCoins.scale, { x: 1.3, y: 1.3 }, { x: 1, y: 1, duration: 0.2, ease: 'back.out(3)' });
+      }
+    }
+
+    if (this.txtKills?.value) {
+      const newKills = `${Math.max(1, level)} ${kills}/${target}`;
+      if (this.txtKills.value.text !== newKills) {
+        this.txtKills.value.text = newKills;
+        // ⭐ 击杀跳动
+        gsap.fromTo(this.txtKills.scale, { x: 1.1, y: 1.1 }, { x: 1, y: 1, duration: 0.15, ease: 'power1.out' });
+      }
+    }
+
     if (this.txtZ?.value) this.txtZ.value.text = `${zombieAlive}`;
 
     if (typeof bossHPpct === 'number') {
@@ -267,9 +283,19 @@ export class HUDSystem extends Container {
     // 更新连击计数
     if (this.txtCombo?.value) {
       const comboText = overdriveActive ? `⚡x${comboCount}` : `x${comboCount}`;
-      this.txtCombo.value.text = comboText;
       
-      // 过载时文字闪烁
+      if (this.txtCombo.value.text !== comboText) {
+        this.txtCombo.value.text = comboText;
+        
+        // 🔥 连击动画
+        const startScale = overdriveActive ? 1.4 : 1.2;
+        gsap.fromTo(this.txtCombo.scale, 
+           { x: startScale, y: startScale },
+           { x: 1, y: 1, duration: 0.3, ease: 'elastic.out(1, 0.5)' }
+        );
+      }
+      
+      // 过载时文字颜色
       if (overdriveActive) {
         this.txtCombo.value.style.fill = heatColor;
       } else {

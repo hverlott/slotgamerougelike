@@ -13,6 +13,8 @@
  *   upgradeSystem.applyUpgrade(options[0]);
  */
 
+import { balanceManager } from './BalanceManager.js';
+
 export class UpgradeSystem {
   constructor(game) {
     this.game = game;
@@ -243,88 +245,58 @@ export class UpgradeSystem {
     console.log('[UpgradeSystem] 升级系统已重置');
   }
 
-  // ============ 私有方法：升级应用逻辑 ============
+  // ============ 私有方法：升级应用逻辑 (使用 BalanceManager) ============
 
   _applyDamageBoost(value) {
-    if (this.game.bulletSystem) {
-      const current = this.game.bulletSystem.damagePerHit || 10;
-      this.game.bulletSystem.damagePerHit = Math.round(current * (1 + value));
-    }
+    balanceManager.applyModifier('damage', value);
   }
 
   _applyBulletCount(value) {
+    // 子弹数量是加法叠加
+    // 注意：BulletSystem 需要从 balanceManager 读取 bulletCount
     if (this.game.bulletSystem) {
-      // 假设 bulletSystem 有一个 bulletCount 属性
-      if (!this.game.bulletSystem.bulletCount) {
-        this.game.bulletSystem.bulletCount = 1;
-      }
-      this.game.bulletSystem.bulletCount += value;
+       this.game.bulletSystem.extraProjectiles = (this.game.bulletSystem.extraProjectiles || 0) + value;
     }
   }
 
   _applyCritChance(value) {
-    if (this.game.bulletSystem) {
-      if (!this.game.bulletSystem.critChance) {
-        this.game.bulletSystem.critChance = 0;
-      }
-      this.game.bulletSystem.critChance = Math.min(1, this.game.bulletSystem.critChance + value);
-    }
+    balanceManager.applyModifier('critChance', value);
   }
 
   _applyCritDamage(value) {
-    if (this.game.bulletSystem) {
-      if (!this.game.bulletSystem.critMultiplier) {
-        this.game.bulletSystem.critMultiplier = 2.0;
-      }
-      this.game.bulletSystem.critMultiplier += value;
-    }
+    balanceManager.applyModifier('critMultiplier', value);
   }
 
   _applyAOEBoost(value) {
-    if (this.game.bulletSystem) {
-      if (!this.game.bulletSystem.aoeRadius) {
-        this.game.bulletSystem.aoeRadius = 80;
-      }
-      this.game.bulletSystem.aoeRadius *= (1 + value);
-    }
+    balanceManager.applyModifier('aoeRadius', value);
   }
 
   _applyJackpotGain(value) {
+    balanceManager.applyModifier('jackpotGain', value);
+    // 同步到 JackpotSystem
     if (this.game.jackpotSystem) {
-      if (!this.game.jackpotSystem.damageMultiplier) {
-        this.game.jackpotSystem.damageMultiplier = 1.0;
-      }
-      this.game.jackpotSystem.damageMultiplier *= (1 + value);
+      this.game.jackpotSystem.damageMultiplier = balanceManager.modifiers.jackpotGain;
     }
   }
 
   _applyMaxHPBoost(value) {
+    balanceManager.applyModifier('maxHP', value);
     if (this.game.jackpotSystem) {
-      const current = this.game.jackpotSystem.maxHP || 220;
-      this.game.jackpotSystem.maxHP = Math.round(current * (1 + value));
-      // 同时增加当前HP
-      this.game.jackpotSystem.hp = Math.min(
-        this.game.jackpotSystem.maxHP,
-        this.game.jackpotSystem.hp + Math.round(current * value)
-      );
+      const oldMax = this.game.jackpotSystem.maxHP;
+      const newMax = balanceManager.getStat('maxHP');
+      this.game.jackpotSystem.maxHP = newMax;
+      // 保持比例或增加差值
+      this.game.jackpotSystem.hp += (newMax - oldMax);
+      this.game.jackpotSystem.updateHPUI();
     }
   }
 
   _applySpeedBoost(value) {
-    if (this.game.bulletSystem) {
-      const current = this.game.bulletSystem.speed || 26;
-      this.game.bulletSystem.speed = current * (1 + value);
-    }
+    balanceManager.applyModifier('speed', value);
   }
 
   _applyFireRateBoost(value) {
-    if (this.game.bulletSystem) {
-      // 负值表示减少间隔（提高射速）
-      if (!this.game.bulletSystem.fireInterval) {
-        this.game.bulletSystem.fireInterval = 1.0;
-      }
-      this.game.bulletSystem.fireInterval *= (1 + value);
-    }
+    balanceManager.applyModifier('fireInterval', value);
   }
 
   // ============ 工具方法 ============
@@ -353,4 +325,5 @@ export class UpgradeSystem {
     return pool[pool.length - 1];
   }
 }
+
 

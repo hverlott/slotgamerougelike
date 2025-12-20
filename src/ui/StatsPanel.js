@@ -190,10 +190,37 @@ class StatsPanel {
         }
       });
 
-      // 缓存 Boss HP 条特殊元素
-      this.bossHPFill = document.querySelector('.boss-hp-fill');
-      this.bossHPPercentage = document.querySelector('.boss-hp-percentage');
-      this.bossHPContainer = document.querySelector('.boss-hp-container');
+      // 缓存 Chart 元素
+      this.charts = {
+        crit: {
+          val: document.getElementById('stat-crit-val'),
+          bar: document.getElementById('stat-crit-bar'),
+        },
+        dmg: {
+          val: document.getElementById('stat-dmg-val'),
+          bar: document.getElementById('stat-dmg-bar'),
+        },
+        time: {
+          val: document.getElementById('stat-time'),
+          bar: document.querySelector('.time-bar'),
+        }
+      };
+
+      // 缓存 Flip Counter 元素
+      this.flipBoard = document.getElementById('total-hits-board');
+      this.lastHitCount = 0;
+      // 初始化 6 位数
+      if (this.flipBoard) {
+        this.flipDigits = Array.from(this.flipBoard.querySelectorAll('.flip-digit'));
+        // 如果没有足够的位数，补全 (支持最多 7 位)
+        while (this.flipDigits.length < 7) {
+            const d = document.createElement('div');
+            d.className = 'flip-digit';
+            d.textContent = '0';
+            this.flipBoard.insertBefore(d, this.flipBoard.firstChild);
+            this.flipDigits.unshift(d);
+        }
+      }
 
       // 系统部分折叠功能（桌面端默认展开，移动端默认折叠）
       const systemToggle = document.getElementById('system-toggle');
@@ -434,6 +461,41 @@ class StatsPanel {
       if (stats.bossBonusTotal !== undefined) {
         safeSetText(this.fields.bossBonus, formatMoney(stats.bossBonusTotal));
       }
+
+      // ========== 📊 图表更新 ==========
+      if (this.charts) {
+        // 1. 暴击率
+        if (stats.critRate !== undefined) {
+          const rate = Number(stats.critRate);
+          safeSetText(this.charts.crit.val, rate.toFixed(1) + '%');
+          if (this.charts.crit.bar) {
+            this.charts.crit.bar.style.width = Math.min(100, rate) + '%';
+          }
+        }
+
+        // 2. 攻击力加成 (基准 100%)
+        if (stats.atkPower !== undefined) {
+          const atk = Number(stats.atkPower);
+          safeSetText(this.charts.dmg.val, atk.toFixed(0) + '%');
+          // 200% 填满进度条，最低 20%
+          const width = Math.min(100, Math.max(10, (atk / 200) * 100)); 
+          if (this.charts.dmg.bar) {
+            this.charts.dmg.bar.style.width = width + '%';
+          }
+        }
+
+        // 3. 存活时间 (格式化 MM:SS)
+        if (stats.time !== undefined) {
+          const seconds = Math.floor(stats.time);
+          const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+          const s = (seconds % 60).toString().padStart(2, '0');
+          safeSetText(this.charts.time.val, `${m}:${s}`);
+          // 进度条每分钟循环一次
+          if (this.charts.time.bar) {
+             this.charts.time.bar.style.width = ((seconds % 60) / 60 * 100) + '%';
+          }
+        }
+      }
       
       // ========== 💰 经济统计 ==========
       
@@ -470,6 +532,11 @@ class StatsPanel {
       if (stats.activeFX !== undefined) {
         safeSetText(this.fields.fx, formatNumber(stats.activeFX, 0));
       }
+
+      // Flip Counter Logic
+      if (stats.totalHits !== undefined) {
+          this.updateFlipCounter(stats.totalHits);
+      }
       
       // FPS 计算
       this.updateFPS();
@@ -477,6 +544,110 @@ class StatsPanel {
     } catch (error) {
       console.error('[StatsPanel] Update error:', error);
     }
+  }
+
+  /**
+   * 更新机械翻页计数器
+   */
+  updateFlipCounter(value) {
+    if (!this.flipDigits || this.flipDigits.length === 0) return;
+    
+    const val = Math.floor(value);
+    if (val === this.lastHitCount) return;
+    this.lastHitCount = val;
+    
+    // 转换为字符串，补足位数
+    const str = val.toString().padStart(this.flipDigits.length, '0');
+    const chars = str.slice(-this.flipDigits.length);
+    
+    chars.split('').forEach((char, index) => {
+      const digitEl = this.flipDigits[index];
+      if (digitEl.textContent !== char) {
+        digitEl.classList.remove('flipping');
+        void digitEl.offsetWidth; // trigger reflow
+        digitEl.classList.add('flipping');
+        digitEl.textContent = char;
+      }
+    });
+    
+    // 里程碑庆祝 (每 100 次)
+    if (val > 0 && val % 100 === 0) {
+       this.showMilestoneCelebration(val);
+    }
+  }
+  
+  showMilestoneCelebration(val) {
+      const container = this.flipBoard?.parentElement;
+      if(container) {
+          const originalTransform = container.style.transform;
+          container.style.transition = 'all 0.3s ease';
+          container.style.transform = 'scale(1.1)';
+          container.style.boxShadow = '0 0 30px #FFD700';
+          container.style.borderColor = '#FFD700';
+          
+          setTimeout(() => {
+              container.style.transform = originalTransform;
+              container.style.boxShadow = '';
+              container.style.borderColor = '';
+          }, 500);
+      }
+  }
+
+  /**
+   * 更新图表数据和渲染
+   */
+  updateChart(currentNet) {
+    if (!this.chartElements.line) return;
+    
+    // 1. 更新数据队列
+    this.profitHistory.shift();
+    this.profitHistory.push(currentNet);
+    
+    // 2. 计算极值（用于Y轴缩放）
+    let min = Math.min(...this.profitHistory);
+    let max = Math.max(...this.profitHistory);
+    
+    // 确保有一定范围，避免直线居中
+    if (max === min) {
+      max += 100;
+      min -= 100;
+    }
+    
+    // 增加一点边距
+    const range = max - min;
+    const padding = range * 0.1;
+    const yMin = min - padding;
+    const yMax = max + padding;
+    
+    // 3. 生成坐标点
+    const width = 100; // SVG 坐标系 0-100
+    const height = 100;
+    const step = width / (this.profitHistory.length - 1);
+    
+    const points = this.profitHistory.map((val, index) => {
+      const x = index * step;
+      // Y轴翻转（SVG原点在左上）
+      const normalizedY = (val - yMin) / (yMax - yMin);
+      const y = height - (normalizedY * height);
+      return `${x},${y}`;
+    });
+    
+    // 4. 渲染线条
+    const pointsStr = points.join(' ');
+    this.chartElements.line.setAttribute('points', pointsStr);
+    
+    // 5. 渲染填充（闭合路径）
+    if (this.chartElements.fill) {
+      const fillPath = `M0,100 L${pointsStr} L100,100 Z`;
+      this.chartElements.fill.setAttribute('d', fillPath);
+    }
+    
+    // 6. 根据当前趋势改变颜色
+    const start = this.profitHistory[0];
+    const end = currentNet;
+    const color = end >= start ? '#00FF88' : '#FF4444';
+    this.chartElements.line.setAttribute('stroke', color);
+    this.chartElements.fill.setAttribute('fill', end >= start ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 68, 68, 0.1)');
   }
 
   /**

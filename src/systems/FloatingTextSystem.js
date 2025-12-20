@@ -145,16 +145,24 @@ export class FloatingTextSystem {
     this.activeTexts.push(label); // 追踪活跃文字
 
     // 弹跳 pop（暴击更大、更快）
-    const popScale = isCrit ? 1.45 : 1.1;
-    const popDuration = isCrit ? 0.18 : 0.22;
-    const popEase = isCrit ? 'back.out(4)' : 'back.out(3)';
+    // 💥 优化：让暴击更有冲击力 (elastic)
+    const popScale = isCrit ? 2.2 : 1.2;
+    const popDuration = isCrit ? 0.4 : 0.22;
+    const popEase = isCrit ? 'elastic.out(1, 0.4)' : 'back.out(3)';
     
     gsap.fromTo(
       label.scale,
-      { x: 0.35, y: 0.35 },
+      { x: 0.1, y: 0.1 },
       { x: popScale, y: popScale, duration: popDuration, ease: popEase },
     );
-    gsap.to(label.scale, { x: 1, y: 1, duration: 0.28, delay: isCrit ? 0.14 : 0.18, ease: 'expo.out' });
+    
+    // 如果不是 elastic，需要手动回缩，但 elastic 会自带回弹，所以这里对于非暴击保留回缩
+    if (!isCrit) {
+      gsap.to(label.scale, { x: 1, y: 1, duration: 0.28, delay: 0.18, ease: 'expo.out' });
+    } else {
+      // 暴击回缩慢一点，保持大字体
+       gsap.to(label.scale, { x: 1.5, y: 1.5, duration: 0.3, delay: 0.2, ease: 'power2.out' });
+    }
 
     // 上飘 + 左右摆动（暴击更快更高）
     const driftY = isCrit ? 100 + Math.random() * 30 : 74 + Math.random() * 26;

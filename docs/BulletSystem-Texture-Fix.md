@@ -434,3 +434,4 @@ graphics.destroy(); // 清理临时对象
 
 **🔧 修复完成！BulletSystem 现在使用正确的 PixiJS v7 API，稳定可靠！** ✨🚀💎
 
+
